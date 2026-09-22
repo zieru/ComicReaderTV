@@ -23,6 +23,8 @@ jobs:
       contains(github.event.head_commit.message, 'release') ||
       contains(github.event.head_commit.message, '[build]')
     runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
     steps:
       - name: Checkout Repository
@@ -63,9 +65,8 @@ jobs:
           gogio -target android -appversion 1.0.0 -appid com.comicreader.tv -o comic_reader_tv.apk ./client/cmd/tv
 
       - name: Sign APK (Jika ada keystore secret)
-        if: secrets.ANDROID_KEYSTORE_BASE64 != ''
+        if: env.KEYSTORE_BASE64 != ''
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -83,7 +84,7 @@ jobs:
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: comic_reader_tv.apk
           draft: false
