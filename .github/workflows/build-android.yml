@@ -147,17 +147,22 @@ jobs:
           mkdir -p server/build/package/usr/bin
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o server/build/package/usr/bin/comic-reader-server ./server/cmd/server
           chmod +x server/build/package/usr/bin/comic-reader-server
+          chmod +x server/build/package/usr/bin/comic-reader-update
 
-      - name: Package .deb
+      - name: Package .deb (Debian 11+ Compatible via Gzip)
         run: |
           mkdir -p server/build/package/var/lib/comic-reader
-          dpkg-deb --build --root-owner-group server/build/package comic-reader-server_1.0.0_amd64.deb
+          # Gunakan -Zgzip agar kompatibel penuh dengan Debian 11 (Bullseye) yang tidak mendukung zstd
+          dpkg-deb -Zgzip --build --root-owner-group server/build/package comic-reader-server_1.0.2_amd64.deb
+          cp comic-reader-server_1.0.2_amd64.deb comic-reader-server_amd64.deb
 
       - name: Upload Server Deb Artifact
         uses: actions/upload-artifact@v4
         with:
           name: comic-reader-server-deb
-          path: comic-reader-server_1.0.0_amd64.deb
+          path: |
+            comic-reader-server_1.0.2_amd64.deb
+            comic-reader-server_amd64.deb
 
   release:
     name: Publish GitHub Release
@@ -184,7 +189,8 @@ jobs:
         with:
           files: |
             comic_reader_tv.apk
-            comic-reader-server_1.0.0_amd64.deb
+            comic-reader-server_1.0.2_amd64.deb
+            comic-reader-server_amd64.deb
           draft: false
           prerelease: false
           generate_release_notes: true

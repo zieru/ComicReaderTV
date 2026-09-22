@@ -12,7 +12,7 @@
 /dist/
 /release/
 *.deb
-server/build/package/usr/
+server/build/package/usr/bin/comic-reader-server
 server/build/package/var/
 
 # Application runtime data & cache

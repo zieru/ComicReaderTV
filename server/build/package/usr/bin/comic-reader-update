@@ -1,0 +1,38 @@
+#!/bin/bash
+set -e
+
+echo "=========================================="
+echo "      Comic Reader Server Auto-Updater    "
+echo "=========================================="
+echo "Memeriksa rilis terbaru dari GitHub..."
+
+API_DATA=$(curl -sL https://api.github.com/repos/zieru/ComicReaderTV/releases/latest)
+LATEST_TAG=$(echo "$API_DATA" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d '"' -f 4)
+
+if [ -z "$LATEST_TAG" ]; then
+    echo "[ERROR] Gagal mendapatkan informasi versi rilis terbaru dari GitHub."
+    exit 1
+fi
+
+echo "[INFO] Versi rilis terbaru: $LATEST_TAG"
+
+DEB_URL=$(echo "$API_DATA" | grep -o 'https://[^"]*comic-reader-server[^"]*\.deb' | head -n 1)
+if [ -z "$DEB_URL" ]; then
+    echo "[ERROR] Paket .deb tidak ditemukan pada rilis $LATEST_TAG."
+    exit 1
+fi
+
+TMP_FILE=$(mktemp /tmp/comic-reader-server-XXXXXX.deb)
+echo "[INFO] Mengunduh $DEB_URL ..."
+curl -L -o "$TMP_FILE" "$DEB_URL"
+
+echo "[INFO] Memasang pembaruan dengan dpkg -i ..."
+dpkg -i "$TMP_FILE"
+rm -f "$TMP_FILE"
+
+echo "[INFO] Me-restart service comic-reader-server..."
+systemctl restart comic-reader-server || true
+
+echo "=========================================="
+echo " Sukses! Server telah diperbarui ke $LATEST_TAG"
+echo "=========================================="

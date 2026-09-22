@@ -1,8 +1,8 @@
 Package: comic-reader-server
-Version: 1.0.0
+Version: 1.0.2
 Section: utils
 Priority: optional
 Architecture: amd64
 Maintainer: Ahmad Nazirul <zie_777@live.com>
 Description: Comic Reader Catalog Server & Web Admin Dashboard for Android TV
- Lightweight Go catalog server with web admin and Google Drive PDF proxy.
+ Lightweight Go catalog server with web admin, Google Drive proxy, and auto-updater.

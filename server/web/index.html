@@ -24,8 +24,22 @@
 </head>
 <body>
 <div class="container">
-  <h1>📚 Comic Catalog Manager</h1>
-  <p>Input link Google Drive PDF (View / Embed / Preview) atau link PDF langsung untuk Android TV.</p>
+  <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 12px; margin-bottom: 20px;">
+    <div>
+      <h1 style="margin: 0; display: inline-block;">📚 Comic Catalog Manager</h1>
+      <span id="versionBadge" style="background: #2a2a2a; border: 1px solid #444; color: #4CAF50; padding: 3px 8px; border-radius: 12px; font-size: 12px; margin-left: 10px;">v1.0.2</span>
+    </div>
+    <div id="updateContainer" style="display: flex; gap: 8px; align-items: center;">
+      <button id="btnCheckUpdate" onclick="checkUpdate()" style="width: auto; margin: 0; padding: 6px 14px; font-size: 12px; background: #2a2a2a; color: #fff; border: 1px solid #555;">🔄 Cek Update</button>
+    </div>
+  </div>
+
+  <div id="updateBanner" style="display: none; background: #1b5e20; border: 1px solid #4CAF50; color: #fff; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; align-items: center; justify-content: space-between;">
+    <span id="updateBannerText" style="font-size: 14px;">Versi baru tersedia!</span>
+    <button id="btnApplyUpdate" onclick="applyUpdate()" style="width: auto; margin: 0; padding: 6px 16px; background: #4CAF50; color: #fff; border: none; font-weight: bold; border-radius: 4px;">🚀 Update Sekarang</button>
+  </div>
+
+  <p style="color: #aaa; margin-top: 0;">Input link Google Drive PDF (View / Embed / Preview) atau link PDF langsung untuk Android TV.</p>
 
   <div class="card">
     <h3>Tambah Komik Baru</h3>
@@ -84,6 +98,55 @@
     }
   }
 
+  async function checkUpdate() {
+    const btn = document.getElementById('btnCheckUpdate');
+    btn.disabled = true;
+    btn.innerText = 'Memeriksa...';
+    try {
+      const res = await fetch('/api/admin/version');
+      const data = await res.json();
+      document.getElementById('versionBadge').innerText = data.current_version;
+      if (data.has_update) {
+        const banner = document.getElementById('updateBanner');
+        banner.style.display = 'flex';
+        document.getElementById('updateBannerText').innerText = `Versi baru tersedia: ${data.latest_version} (Saat ini: ${data.current_version})`;
+      } else {
+        alert('Server Anda sudah versi terbaru (' + data.current_version + ')!');
+      }
+    } catch (err) {
+      alert('Gagal memeriksa rilis GitHub: ' + err);
+    } finally {
+      btn.disabled = false;
+      btn.innerText = '🔄 Cek Update';
+    }
+  }
+
+  async function applyUpdate() {
+    if (!confirm('Server akan mengunduh paket .deb terbaru dan me-restart service. Lanjutkan?')) return;
+    const btn = document.getElementById('btnApplyUpdate');
+    btn.disabled = true;
+    btn.innerText = 'Mengunduh & Memasang...';
+    try {
+      const res = await fetch('/api/admin/update', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message + '\n\nHalaman akan dimuat ulang dalam 5 detik...');
+        setTimeout(() => {
+          window.location.reload();
+        }, 5000);
+      } else {
+        alert('Info update: ' + data.message);
+        btn.disabled = false;
+        btn.innerText = '🚀 Update Sekarang';
+      }
+    } catch (err) {
+      alert('Proses update dimulai, service server sedang me-restart. Memuat ulang halaman...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 5000);
+    }
+  }
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const payload = {
@@ -103,7 +166,8 @@
       form.reset();
       loadComics();
     } else {
-      alert('Gagal menambah komik!');
+      const errText = await res.text();
+      alert('Gagal menambah komik: ' + errText);
     }
   });
 
@@ -114,6 +178,8 @@
   }
 
   loadComics();
+  // Auto cek update saat web dibuka
+  checkUpdate();
 </script>
 </body>
 </html>

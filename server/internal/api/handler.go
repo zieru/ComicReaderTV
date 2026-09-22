@@ -10,27 +10,83 @@ import (
 	"strconv"
 	"strings"
 
-	"comic_reader/server/internal/gdrive"
 	"comic_reader/pkg/model"
+	"comic_reader/server/internal/gdrive"
 	"comic_reader/server/internal/pdfengine"
 	"comic_reader/server/internal/store"
+	"comic_reader/server/internal/updater"
 )
 
 type Handler struct {
 	store     *store.Store
 	pdfEngine *pdfengine.Engine
+	version   string
 }
 
-func NewHandler(st *store.Store, pdfEng *pdfengine.Engine) *Handler {
+func NewHandler(st *store.Store, pdfEng *pdfengine.Engine, version string) *Handler {
 	return &Handler{
 		store:     st,
 		pdfEngine: pdfEng,
+		version:   version,
 	}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/comics", h.handleComics)
 	mux.HandleFunc("/api/comics/", h.handleComicItem)
+	mux.HandleFunc("/api/admin/version", h.handleVersion)
+	mux.HandleFunc("/api/admin/update", h.handleUpdate)
+}
+
+func (h *Handler) handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	res, err := updater.CheckLatestRelease("zieru/ComicReaderTV", h.version)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Gagal cek rilis GitHub: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
+}
+
+func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	res, err := updater.CheckLatestRelease("zieru/ComicReaderTV", h.version)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Gagal cek rilis GitHub: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if !res.HasUpdate {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Server sudah menggunakan versi terbaru",
+		})
+		return
+	}
+
+	if err := updater.PerformDebUpdate(res.DownloadURL); err != nil {
+		http.Error(w, fmt.Sprintf("Gagal update paket: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":        true,
+		"message":        fmt.Sprintf("Pembaruan ke %s berhasil dipasang! Service sedang restart...", res.LatestVersion),
+		"latest_version": res.LatestVersion,
+	})
 }
 
 func (h *Handler) handleComics(w http.ResponseWriter, r *http.Request) {
