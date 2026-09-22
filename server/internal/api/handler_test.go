@@ -39,7 +39,7 @@ func setupTestServer(t *testing.T) (*Handler, http.Handler, string) {
 		t.Fatalf("Failed to create pdfengine: %v", err)
 	}
 
-	handler := NewHandler(st, pe, nil, "1.0.5")
+	handler := NewHandler(st, pe, nil, "1.0.6")
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
@@ -159,7 +159,7 @@ func TestAuthProtection(t *testing.T) {
 	}
 
 	authMgr := auth.NewManager("mock_token", filepath.Join(tempDir, "auth"), 123456)
-	handler := NewHandler(st, pe, authMgr, "1.0.5")
+	handler := NewHandler(st, pe, authMgr, "1.0.6")
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 

@@ -512,12 +512,12 @@ func (h *Handler) handleVerifyOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set HTTP Cookie untuk web browser
+	// Set HTTP Cookie untuk web browser (berlaku 1 hari / 24 jam)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "comic_session",
 		Value:    sessionToken,
 		Path:     "/",
-		MaxAge:   7 * 24 * 3600, // 7 hari
+		MaxAge:   24 * 3600, // 1 hari (24 jam)
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})

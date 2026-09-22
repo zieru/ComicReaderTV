@@ -99,3 +99,20 @@ func TestPersistence(t *testing.T) {
 		t.Errorf("Expected adminChatID 987654321 to be persisted, got %d", mgr2.adminChatID)
 	}
 }
+
+func TestSessionPersistence(t *testing.T) {
+	tempDir, _ := os.MkdirTemp("", "auth_test_*")
+	defer os.RemoveAll(tempDir)
+
+	mgr1 := NewManager("", tempDir, 123456789)
+	sessionToken := mgr1.CreateSessionForTest()
+	mgr1.Close()
+
+	// Buat manager baru dengan folder data yang sama (simulasi server restart)
+	mgr2 := NewManager("", tempDir, 123456789)
+	defer mgr2.Close()
+
+	if !mgr2.ValidateSession(sessionToken) {
+		t.Errorf("Expected session token to be preserved across restart/reload from disk")
+	}
+}

@@ -81,6 +81,9 @@ func NewManager(botToken string, dataDir string, initialChatID int64) *Manager {
 		}
 	}
 
+	// Muat sesi admin aktif yang tersimpan
+	m.loadSavedSessions()
+
 	// Dapatkan info bot
 	m.initBotInfo()
 
@@ -139,6 +142,52 @@ func (m *Manager) saveChatID(id int64) {
 	_ = os.MkdirAll(m.dataDir, 0755)
 	path := filepath.Join(m.dataDir, "admin_chat_id.txt")
 	_ = os.WriteFile(path, []byte(strconv.FormatInt(id, 10)), 0644)
+}
+
+func (m *Manager) loadSavedSessions() {
+	if m.dataDir == "" {
+		return
+	}
+	path := filepath.Join(m.dataDir, "sessions.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var loaded map[string]time.Time
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		return
+	}
+	now := time.Now()
+	count := 0
+	for token, exp := range loaded {
+		if now.Before(exp) {
+			m.sessions[token] = exp
+			count++
+		}
+	}
+	if count > 0 {
+		log.Printf("[auth] Memuat %d sesi admin aktif dari disk", count)
+	}
+}
+
+func (m *Manager) saveSessionsLocked() {
+	if m.dataDir == "" {
+		return
+	}
+	_ = os.MkdirAll(m.dataDir, 0755)
+	path := filepath.Join(m.dataDir, "sessions.json")
+	now := time.Now()
+	clean := make(map[string]time.Time)
+	for token, exp := range m.sessions {
+		if now.Before(exp) {
+			clean[token] = exp
+		}
+	}
+	m.sessions = clean
+	data, err := json.Marshal(clean)
+	if err == nil {
+		_ = os.WriteFile(path, data, 0600)
+	}
 }
 
 // SetAdminChatID menetapkan admin chat ID secara eksplisit
@@ -224,10 +273,11 @@ func (m *Manager) VerifyOTP(code string) (string, error) {
 	_, _ = rand.Read(tokenBytes)
 	sessionToken := hex.EncodeToString(tokenBytes)
 
-	// Sesi aktif selama 7 hari
-	m.sessions[sessionToken] = time.Now().Add(7 * 24 * time.Hour)
+	// Sesi aktif selama 24 jam (1 hari - tidak perlu selalu minta OTP)
+	m.sessions[sessionToken] = time.Now().Add(24 * time.Hour)
+	m.saveSessionsLocked()
 
-	log.Printf("[auth] Login berhasil via OTP! Sesi dibuat (berlaku 7 hari)")
+	log.Printf("[auth] Login berhasil via OTP! Sesi dibuat dan disimpan (berlaku 1 hari / 24 jam)")
 	return sessionToken, nil
 }
 
@@ -254,6 +304,7 @@ func (m *Manager) RevokeSession(token string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.sessions, token)
+	m.saveSessionsLocked()
 }
 
 // CreateSessionForTest membuat sesi aktif langsung untuk keperluan automated test
@@ -263,7 +314,8 @@ func (m *Manager) CreateSessionForTest() string {
 	tokenBytes := make([]byte, 32)
 	_, _ = rand.Read(tokenBytes)
 	sessionToken := hex.EncodeToString(tokenBytes)
-	m.sessions[sessionToken] = time.Now().Add(7 * 24 * time.Hour)
+	m.sessions[sessionToken] = time.Now().Add(24 * time.Hour)
+	m.saveSessionsLocked()
 	return sessionToken
 }
 

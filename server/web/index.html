@@ -162,7 +162,7 @@
   <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 14px; margin-bottom: 22px; flex-wrap: wrap; gap: 12px;">
     <div>
       <h1 style="display: inline-block;">📚 Comic Catalog Manager</h1>
-      <span id="versionBadge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan); padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 10px; font-weight: 600;">v1.0.5</span>
+      <span id="versionBadge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan); padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 10px; font-weight: 600;">v1.0.6</span>
       <span id="browserBadge" style="background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #4ade80; padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 6px; font-weight: 500;">Memeriksa Headless Scraper...</span>
     </div>
     <div style="display: flex; gap: 8px; align-items: center;">
@@ -183,7 +183,7 @@
       </div>
 
       <p style="font-size: 13px; color: var(--text-muted); margin: 0 0 14px 0;">
-        Demi keamanan, aksi tambah, upload, hapus komik, dan update server dilindungi oleh <strong>Kode OTP Telegram</strong>.
+        Aksi tambah, upload, hapus komik, dan update server dilindungi oleh <strong>Kode OTP Telegram</strong>. Sesi login otomatis <strong>tersimpan selama 1 hari (24 jam)</strong> sehingga Anda tidak perlu meminta OTP berulang kali.
       </p>
 
       <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px;">
@@ -553,6 +553,10 @@
     try {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/comics/upload');
+      const token = localStorage.getItem('comic_session');
+      if (token) {
+        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      }
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
           const percent = Math.round((event.loaded / event.total) * 100);
@@ -611,7 +615,7 @@
 
     const res = await fetch('/api/comics', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload)
     });
 
@@ -633,7 +637,10 @@
 
   async function deleteComic(id) {
     if (!confirm('Yakin ingin menghapus komik ini?')) return;
-    const res = await fetch('/api/comics/' + id, { method: 'DELETE' });
+    const res = await fetch('/api/comics/' + id, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
     if (res.status === 401) {
       alert('Aksi memerlukan otorisasi admin! Silakan verifikasi OTP Telegram.');
       openOtpModal();
@@ -646,6 +653,15 @@
   let isUserAuthenticated = false;
   let botUsername = 'Area1SumatraBot';
 
+  function getAuthHeaders(baseHeaders = {}) {
+    const token = localStorage.getItem('comic_session');
+    const headers = { ...baseHeaders };
+    if (token) {
+      headers['Authorization'] = 'Bearer ' + token;
+    }
+    return headers;
+  }
+
   function openOtpModal() {
     document.getElementById('otpModal').style.display = 'flex';
   }
@@ -656,7 +672,9 @@
 
   async function checkAuthStatus() {
     try {
-      const res = await fetch('/api/auth/status');
+      const res = await fetch('/api/auth/status', {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       isUserAuthenticated = data.authenticated || data.is_authenticated;
       if (data.bot_username) {
@@ -675,7 +693,7 @@
         btnAuth.innerText = '🚪 Logout';
         btnAuth.style.background = '#334155';
         statusText.style.display = 'inline-block';
-        statusText.innerText = data.admin_username ? `👤 @${data.admin_username}` : '👤 Admin';
+        statusText.innerText = data.admin_username ? `👤 @${data.admin_username}` : '👤 Admin (1 Hari)';
         closeOtpModal();
       } else {
         btnAuth.innerText = '🔐 Login OTP';
@@ -690,7 +708,8 @@
   async function handleAuthAction() {
     if (isUserAuthenticated) {
       if (confirm('Yakin ingin logout dari dashboard admin?')) {
-        await fetch('/api/auth/logout', { method: 'POST' });
+        await fetch('/api/auth/logout', { method: 'POST', headers: getAuthHeaders() });
+        localStorage.removeItem('comic_session');
         await checkAuthStatus();
       }
     } else {
@@ -770,11 +789,14 @@
       const data = await res.json();
 
       if (res.ok && data.success) {
+        if (data.token) {
+          localStorage.setItem('comic_session', data.token);
+        }
         notice.style.display = 'block';
         notice.style.background = 'rgba(34, 197, 94, 0.15)';
         notice.style.border = '1px solid #22c55e';
         notice.style.color = '#4ade80';
-        notice.innerHTML = '🎉 <strong>Login Berhasil!</strong> Sesi admin aktif.';
+        notice.innerHTML = '🎉 <strong>Login Berhasil!</strong> Sesi admin aktif (berlaku 1 hari).';
         setTimeout(() => {
           closeOtpModal();
           checkAuthStatus();
@@ -839,7 +861,7 @@
     btn.disabled = true;
     btn.innerText = 'Mengunduh & Memasang...';
     try {
-      const res = await fetch('/api/admin/update', { method: 'POST' });
+      const res = await fetch('/api/admin/update', { method: 'POST', headers: getAuthHeaders() });
       if (res.status === 401) {
         alert('Aksi memerlukan login admin! Silakan verifikasi OTP Telegram.');
         openOtpModal();
