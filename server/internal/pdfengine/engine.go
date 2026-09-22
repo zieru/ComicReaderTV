@@ -98,6 +98,18 @@ func (e *Engine) EnsureLocalPDF(comicID, sourceURL string) (string, error) {
 		return "", fmt.Errorf("gagal menyimpan stream PDF: %w", err)
 	}
 
+	// Validasi bahwa file yang diunduh adalah file PDF yang valid
+	f, err := os.Open(tempPath)
+	if err == nil {
+		magic := make([]byte, 5)
+		n, _ := io.ReadFull(f, magic)
+		f.Close()
+		if n < 4 || string(magic[:4]) != "%PDF" {
+			os.Remove(tempPath)
+			return "", fmt.Errorf("file yang diunduh bukan dokumen PDF yang valid (format tidak sesuai atau respon error tersimpan)")
+		}
+	}
+
 	// Rename atomik
 	if err := os.Rename(tempPath, localPath); err != nil {
 		return "", fmt.Errorf("gagal rename file PDF: %w", err)

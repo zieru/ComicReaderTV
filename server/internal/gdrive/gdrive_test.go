@@ -52,3 +52,13 @@ func TestExtractFileID(t *testing.T) {
 		})
 	}
 }
+
+func TestDownloadFile_Restricted(t *testing.T) {
+	client := NewClient()
+	// ID file yang di-share tanpa izin download publik
+	_, err := client.DownloadFile("1Nu-jwvwQIXiggCWR9WG0GaGxTIJ9YKwO")
+	if err == nil {
+		t.Fatal("harus mengembalikan error untuk file restricted")
+	}
+	t.Logf("Pesan error yang dihasilkan: %v", err)
+}
