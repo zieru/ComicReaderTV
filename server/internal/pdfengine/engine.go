@@ -34,8 +34,61 @@ func New(cacheDir string) (*Engine, error) {
 	}, nil
 }
 
+// SaveUploadedPDF menyimpan file PDF yang diunggah secara langsung oleh user / client
+func (e *Engine) SaveUploadedPDF(comicID string, r io.Reader) (string, error) {
+	localPath := filepath.Join(e.cacheDir, fmt.Sprintf("%s_upload.pdf", comicID))
+
+	tempPath := localPath + ".tmp"
+	outFile, err := os.Create(tempPath)
+	if err != nil {
+		return "", fmt.Errorf("gagal membuat file temp: %w", err)
+	}
+
+	_, err = io.Copy(outFile, r)
+	outFile.Close()
+	if err != nil {
+		os.Remove(tempPath)
+		return "", fmt.Errorf("gagal menyimpan file upload: %w", err)
+	}
+
+	// Validasi bahwa file adalah PDF valid
+	f, err := os.Open(tempPath)
+	if err != nil {
+		os.Remove(tempPath)
+		return "", fmt.Errorf("gagal membuka file temp untuk validasi: %w", err)
+	}
+	magic := make([]byte, 5)
+	n, _ := io.ReadFull(f, magic)
+	f.Close()
+	if n < 4 || string(magic[:4]) != "%PDF" {
+		os.Remove(tempPath)
+		return "", fmt.Errorf("file yang diunggah bukan dokumen PDF yang valid")
+	}
+
+	if err := os.Rename(tempPath, localPath); err != nil {
+		return "", fmt.Errorf("gagal memindahkan file upload: %w", err)
+	}
+
+	return localPath, nil
+}
+
 // EnsureLocalPDF memastikan file PDF diunduh dan tersimpan di cache lokal
 func (e *Engine) EnsureLocalPDF(comicID, sourceURL string) (string, error) {
+	// Cek apakah ini file upload lokal
+	if strings.HasPrefix(sourceURL, "local:") || sourceURL == "" {
+		localPath := filepath.Join(e.cacheDir, fmt.Sprintf("%s_upload.pdf", comicID))
+		if fi, err := os.Stat(localPath); err == nil && fi.Size() > 0 {
+			return localPath, nil
+		}
+		return "", fmt.Errorf("file PDF lokal tidak ditemukan untuk komik ID: %s", comicID)
+	}
+
+	// Cek apakah ada file upload yang tersimpan untuk ID ini
+	uploadPath := filepath.Join(e.cacheDir, fmt.Sprintf("%s_upload.pdf", comicID))
+	if fi, err := os.Stat(uploadPath); err == nil && fi.Size() > 0 {
+		return uploadPath, nil
+	}
+
 	hasher := sha256.New()
 	hasher.Write([]byte(sourceURL))
 	urlHash := hex.EncodeToString(hasher.Sum(nil))[:12]

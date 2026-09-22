@@ -15,7 +15,7 @@ import (
 	"comic_reader/server/web"
 )
 
-var Version = "1.0.2"
+var Version = "1.0.3"
 
 func main() {
 	port := flag.Int("port", 8080, "Port untuk server katalog")

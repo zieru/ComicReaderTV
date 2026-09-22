@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -33,6 +34,7 @@ func NewHandler(st *store.Store, pdfEng *pdfengine.Engine, version string) *Hand
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/comics", h.handleComics)
+	mux.HandleFunc("/api/comics/upload", h.handleUploadComic)
 	mux.HandleFunc("/api/comics/", h.handleComicItem)
 	mux.HandleFunc("/api/admin/version", h.handleVersion)
 	mux.HandleFunc("/api/admin/update", h.handleUpdate)
@@ -206,6 +208,19 @@ func (h *Handler) handleComicItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-resource: /api/comics/{id}/pdf
+	if len(parts) >= 2 && parts[1] == "pdf" {
+		localPDF, err := h.pdfEngine.EnsureLocalPDF(comic.ID, comic.SourceURL)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Gagal memuat PDF: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s.pdf\"", comic.Title))
+		http.ServeFile(w, r, localPDF)
+		return
+	}
+
 	// Sub-resource: /api/comics/{id}/page/{num}
 	if len(parts) >= 3 && parts[1] == "page" {
 		pageNum, err := strconv.Atoi(parts[2])
@@ -240,4 +255,77 @@ func (h *Handler) handleComicItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.NotFound(w, r)
+}
+
+func (h *Handler) handleUploadComic(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Batasi ukuran upload (maks 500MB)
+	if err := r.ParseMultipartForm(500 << 20); err != nil {
+		http.Error(w, fmt.Sprintf("Gagal memproses form upload: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	title := strings.TrimSpace(r.FormValue("title"))
+	description := strings.TrimSpace(r.FormValue("description"))
+	coverURL := strings.TrimSpace(r.FormValue("cover_url"))
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "File PDF wajib disertakan pada field 'file'", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	if title == "" {
+		title = header.Filename
+		if ext := filepath.Ext(title); ext != "" {
+			title = strings.TrimSuffix(title, ext)
+		}
+	}
+
+	idBytes := make([]byte, 6)
+	rand.Read(idBytes)
+	comicID := hex.EncodeToString(idBytes)
+
+	localPath, err := h.pdfEngine.SaveUploadedPDF(comicID, file)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Gagal menyimpan file PDF: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	totalPages, err := h.pdfEngine.GetPageCount(localPath)
+	if err != nil {
+		log.Printf("Peringatan: gagal hitung halaman komik %s: %v", comicID, err)
+		totalPages = 0
+	}
+
+	comic := model.Comic{
+		ID:          comicID,
+		Title:       title,
+		Description: description,
+		CoverURL:    coverURL,
+		SourceType:  "uploaded_pdf",
+		SourceURL:   fmt.Sprintf("local:%s", comicID),
+		TotalPages:  totalPages,
+	}
+
+	if err := h.store.Upsert(comic); err != nil {
+		http.Error(w, fmt.Sprintf("Gagal menyimpan data komik: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(comic)
 }

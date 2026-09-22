@@ -152,17 +152,17 @@ jobs:
       - name: Package .deb (Debian 11+ Compatible via Gzip)
         run: |
           mkdir -p server/build/package/var/lib/comic-reader
+          PKG_VERSION=$(grep '^Version:' server/build/package/DEBIAN/control | awk '{print $2}')
           # Gunakan -Zgzip agar kompatibel penuh dengan Debian 11 (Bullseye) yang tidak mendukung zstd
-          dpkg-deb -Zgzip --build --root-owner-group server/build/package comic-reader-server_1.0.2_amd64.deb
-          cp comic-reader-server_1.0.2_amd64.deb comic-reader-server_amd64.deb
+          dpkg-deb -Zgzip --build --root-owner-group server/build/package "comic-reader-server_${PKG_VERSION}_amd64.deb"
+          cp "comic-reader-server_${PKG_VERSION}_amd64.deb" comic-reader-server_amd64.deb
 
       - name: Upload Server Deb Artifact
         uses: actions/upload-artifact@v4
         with:
           name: comic-reader-server-deb
           path: |
-            comic-reader-server_1.0.2_amd64.deb
-            comic-reader-server_amd64.deb
+            comic-reader-server_*.deb
 
   release:
     name: Publish GitHub Release
@@ -189,8 +189,7 @@ jobs:
         with:
           files: |
             comic_reader_tv.apk
-            comic-reader-server_1.0.2_amd64.deb
-            comic-reader-server_amd64.deb
+            comic-reader-server_*.deb
           draft: false
           prerelease: false
           generate_release_notes: true
