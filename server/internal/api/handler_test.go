@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"comic_reader/pkg/model"
+	"comic_reader/server/internal/auth"
 	"comic_reader/server/internal/manga"
 	"comic_reader/server/internal/pdfengine"
 	"comic_reader/server/internal/store"
@@ -38,7 +39,7 @@ func setupTestServer(t *testing.T) (*Handler, http.Handler, string) {
 		t.Fatalf("Failed to create pdfengine: %v", err)
 	}
 
-	handler := NewHandler(st, pe, "1.0.3")
+	handler := NewHandler(st, pe, nil, "1.0.5")
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
@@ -138,5 +139,66 @@ func TestMangaSearch(t *testing.T) {
 		t.Logf("Warning: no results returned (might be network/rate limit)")
 	} else {
 		t.Logf("Found %d manga results for 'One Piece', first: %s", len(results), results[0].Title)
+	}
+}
+
+func TestAuthProtection(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "cr_auth_test_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	st, err := store.New(filepath.Join(tempDir, "store"))
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	pe, err := pdfengine.New(filepath.Join(tempDir, "pdf_cache"))
+	if err != nil {
+		t.Fatalf("Failed to create pdfengine: %v", err)
+	}
+
+	authMgr := auth.NewManager("mock_token", filepath.Join(tempDir, "auth"), 123456)
+	handler := NewHandler(st, pe, authMgr, "1.0.5")
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// 1. Check status
+	reqStatus := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
+	recStatus := httptest.NewRecorder()
+	mux.ServeHTTP(recStatus, reqStatus)
+	if recStatus.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for auth status, got %d", recStatus.Code)
+	}
+
+	// 2. Unauthenticated POST /api/comics should be 401 Unauthorized
+	comicReq := model.CreateComicRequest{Title: "Unauth Comic", SourceURL: "https://example.com/test.pdf"}
+	body, _ := json.Marshal(comicReq)
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/comics", bytes.NewReader(body))
+	recPost := httptest.NewRecorder()
+	mux.ServeHTTP(recPost, reqPost)
+	if recPost.Code != http.StatusUnauthorized {
+		t.Fatalf("Expected 401 Unauthorized, got %d", recPost.Code)
+	}
+
+	// 3. Unauthenticated GET /api/comics should still be 200 OK (accessible for TV app)
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/comics", nil)
+	recGet := httptest.NewRecorder()
+	mux.ServeHTTP(recGet, reqGet)
+	if recGet.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for GET /api/comics, got %d", recGet.Code)
+	}
+
+	// 4. Authenticated request using session cookie
+	sessionToken := authMgr.CreateSessionForTest()
+	reqPostAuth := httptest.NewRequest(http.MethodPost, "/api/comics", bytes.NewReader(body))
+	reqPostAuth.AddCookie(&http.Cookie{
+		Name:  "comic_session",
+		Value: sessionToken,
+	})
+	recPostAuth := httptest.NewRecorder()
+	mux.ServeHTTP(recPostAuth, reqPostAuth)
+	if recPostAuth.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 Created with valid session cookie, got %d: %s", recPostAuth.Code, recPostAuth.Body.String())
 	}
 }

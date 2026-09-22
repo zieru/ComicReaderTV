@@ -113,18 +113,102 @@
     .badge { display: inline-block; padding: 2px 7px; font-size: 11px; border-radius: 4px; background: #0f172a; color: var(--accent-cyan); border: 1px solid #334155; margin-top: 6px; }
     .btn-delete { background: var(--accent-red); color: #fff; padding: 6px 10px; font-size: 12px; margin-top: 8px; width: auto; float: right; border-radius: 6px; }
     .btn-pdf { background: #334155; color: #cbd5e1; padding: 6px 10px; font-size: 12px; margin-top: 8px; width: auto; float: left; border-radius: 6px; text-decoration: none; display: inline-block; }
+
+    /* Telegram OTP Auth Modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 99999;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+    }
+    .modal-box {
+      background: #1e293b;
+      border: 1px solid #475569;
+      border-radius: 16px;
+      max-width: 440px;
+      width: 100%;
+      padding: 28px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+      position: relative;
+    }
+    .otp-input {
+      font-size: 28px;
+      letter-spacing: 12px;
+      text-align: center;
+      font-family: monospace;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      background: #0f172a;
+      border: 2px solid #38bdf8;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 14px 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .otp-input:focus {
+      outline: none;
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+    }
   </style>
 </head>
 <body>
 <div class="container">
-  <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 14px; margin-bottom: 22px;">
+  <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 14px; margin-bottom: 22px; flex-wrap: wrap; gap: 12px;">
     <div>
       <h1 style="display: inline-block;">📚 Comic Catalog Manager</h1>
-      <span id="versionBadge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan); padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 10px; font-weight: 600;">v1.0.4</span>
+      <span id="versionBadge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan); padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 10px; font-weight: 600;">v1.0.5</span>
       <span id="browserBadge" style="background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #4ade80; padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 6px; font-weight: 500;">Memeriksa Headless Scraper...</span>
     </div>
-    <div id="updateContainer" style="display: flex; gap: 8px; align-items: center;">
-      <button id="btnCheckUpdate" onclick="checkUpdate()" style="width: auto; margin: 0; padding: 7px 16px; font-size: 12px; background: var(--card-bg); color: #fff; border: 1px solid var(--card-border);">🔄 Cek Update</button>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <button id="btnCheckUpdate" onclick="checkUpdate()" style="width: auto; margin: 0; padding: 7px 14px; font-size: 12px; background: var(--card-bg); color: #fff; border: 1px solid var(--card-border);">🔄 Cek Update</button>
+      <span id="authStatusText" style="display: none; font-size: 12px; padding: 6px 12px; border-radius: 6px; background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #4ade80; font-weight: 600;">👤 Admin</span>
+      <button id="btnAuth" onclick="handleAuthAction()" style="width: auto; margin: 0; padding: 7px 14px; font-size: 12px; background: #0284c7; color: #fff; border: none; font-weight: bold; border-radius: 6px;">🔐 Login OTP</button>
+    </div>
+  </div>
+
+  <!-- Telegram OTP Modal -->
+  <div id="otpModal" class="modal-backdrop">
+    <div class="modal-box">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 style="margin: 0; color: var(--accent-cyan); font-size: 18px; display: flex; align-items: center; gap: 8px;">
+          <span>✈️</span> Login Admin via Telegram
+        </h3>
+        <button onclick="closeOtpModal()" style="width: auto; margin: 0; padding: 4px 10px; background: transparent; color: var(--text-muted); border: 1px solid var(--card-border); font-size: 14px; border-radius: 6px;">✕</button>
+      </div>
+
+      <p style="font-size: 13px; color: var(--text-muted); margin: 0 0 14px 0;">
+        Demi keamanan, aksi tambah, upload, hapus komik, dan update server dilindungi oleh <strong>Kode OTP Telegram</strong>.
+      </p>
+
+      <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px;">
+        <div style="color: #cbd5e1; margin-bottom: 4px;"><strong>Langkah 1:</strong> Buka bot Telegram</div>
+        <div>
+          👉 <a id="botLink" href="https://t.me/Area1SumatraBot" target="_blank" style="color: var(--accent-cyan); font-weight: bold; text-decoration: underline;">@Area1SumatraBot</a>
+          <span style="color: var(--text-muted); font-size: 11px;">(klik & tekan <strong>Start</strong>)</span>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <button id="btnRequestOtp" onclick="requestOTP()" style="background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; margin: 0; padding: 10px 16px;">
+          📲 Minta Kode OTP ke Telegram
+        </button>
+      </div>
+
+      <div id="otpNotice" style="display: none; padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 14px;"></div>
+
+      <div id="otpVerifySection" style="display: none;">
+        <label style="font-size: 12px; font-weight: 600; color: #cbd5e1;">Masukkan 6-Digit Kode OTP dari Bot:</label>
+        <input type="text" id="otpInput" class="otp-input" maxlength="6" placeholder="------" autocomplete="off" oninput="if(this.value.length===6) verifyOTP()" />
+        <button id="btnVerifyOtp" onclick="verifyOTP()" style="background: var(--accent-green); color: #0f172a; margin: 0; padding: 10px 16px; font-weight: bold;">
+          ✅ Verifikasi & Masuk
+        </button>
+      </div>
     </div>
   </div>
 
@@ -489,6 +573,13 @@
             btn.innerText = '🚀 Upload & Masukkan ke Katalog';
             loadComics();
           }, 1000);
+        } else if (xhr.status === 401) {
+          alert('Aksi memerlukan login admin! Silakan verifikasi OTP Telegram.');
+          openOtpModal();
+          pContainer.style.display = 'none';
+          btn.disabled = false;
+          btn.innerText = '🚀 Upload & Masukkan ke Katalog';
+          return;
         } else {
           alert('Gagal mengunggah: ' + xhr.responseText);
           btn.disabled = false;
@@ -524,6 +615,12 @@
       body: JSON.stringify(payload)
     });
 
+    if (res.status === 401) {
+      alert('Aksi memerlukan login admin! Silakan verifikasi OTP Telegram.');
+      openOtpModal();
+      return;
+    }
+
     if (res.ok) {
       form.reset();
       document.getElementById('coverPreviewBox').style.display = 'none';
@@ -536,8 +633,167 @@
 
   async function deleteComic(id) {
     if (!confirm('Yakin ingin menghapus komik ini?')) return;
-    await fetch('/api/comics/' + id, { method: 'DELETE' });
+    const res = await fetch('/api/comics/' + id, { method: 'DELETE' });
+    if (res.status === 401) {
+      alert('Aksi memerlukan otorisasi admin! Silakan verifikasi OTP Telegram.');
+      openOtpModal();
+      return;
+    }
     loadComics();
+  }
+
+  // --- Telegram OTP Authentication System ---
+  let isUserAuthenticated = false;
+  let botUsername = 'Area1SumatraBot';
+
+  function openOtpModal() {
+    document.getElementById('otpModal').style.display = 'flex';
+  }
+
+  function closeOtpModal() {
+    document.getElementById('otpModal').style.display = 'none';
+  }
+
+  async function checkAuthStatus() {
+    try {
+      const res = await fetch('/api/auth/status');
+      const data = await res.json();
+      isUserAuthenticated = data.authenticated || data.is_authenticated;
+      if (data.bot_username) {
+        botUsername = data.bot_username;
+        const bLink = document.getElementById('botLink');
+        if (bLink) {
+          bLink.innerText = '@' + botUsername;
+          bLink.href = 'https://t.me/' + botUsername;
+        }
+      }
+
+      const btnAuth = document.getElementById('btnAuth');
+      const statusText = document.getElementById('authStatusText');
+
+      if (isUserAuthenticated) {
+        btnAuth.innerText = '🚪 Logout';
+        btnAuth.style.background = '#334155';
+        statusText.style.display = 'inline-block';
+        statusText.innerText = data.admin_username ? `👤 @${data.admin_username}` : '👤 Admin';
+        closeOtpModal();
+      } else {
+        btnAuth.innerText = '🔐 Login OTP';
+        btnAuth.style.background = '#0284c7';
+        statusText.style.display = 'none';
+      }
+    } catch (err) {
+      console.warn('Gagal cek status autentikasi:', err);
+    }
+  }
+
+  async function handleAuthAction() {
+    if (isUserAuthenticated) {
+      if (confirm('Yakin ingin logout dari dashboard admin?')) {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        await checkAuthStatus();
+      }
+    } else {
+      openOtpModal();
+    }
+  }
+
+  async function requestOTP() {
+    const btn = document.getElementById('btnRequestOtp');
+    const notice = document.getElementById('otpNotice');
+    btn.disabled = true;
+    btn.innerText = '⏳ Mengirim ke Telegram...';
+    notice.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/auth/request-otp', { method: 'POST' });
+      const data = await res.json();
+
+      notice.style.display = 'block';
+      if (res.ok && data.success) {
+        notice.style.background = 'rgba(34, 197, 94, 0.15)';
+        notice.style.border = '1px solid #22c55e';
+        notice.style.color = '#4ade80';
+        notice.innerHTML = `✅ <strong>Berhasil!</strong> ${data.message}`;
+        document.getElementById('otpVerifySection').style.display = 'block';
+        document.getElementById('otpInput').focus();
+
+        // Hitung mundur tombol
+        let countdown = 30;
+        const timer = setInterval(() => {
+          btn.innerText = `⏳ Tunggu (${countdown}s)`;
+          countdown--;
+          if (countdown <= 0) {
+            clearInterval(timer);
+            btn.disabled = false;
+            btn.innerText = '📲 Minta Ulang OTP';
+          }
+        }, 1000);
+      } else {
+        notice.style.background = 'rgba(239, 68, 68, 0.15)';
+        notice.style.border = '1px solid #ef4444';
+        notice.style.color = '#f87171';
+        notice.innerHTML = `⚠️ ${data.message || 'Gagal mengirim OTP'}`;
+        btn.disabled = false;
+        btn.innerText = '📲 Coba Minta Lagi';
+      }
+    } catch (err) {
+      notice.style.display = 'block';
+      notice.style.background = 'rgba(239, 68, 68, 0.15)';
+      notice.style.border = '1px solid #ef4444';
+      notice.style.color = '#f87171';
+      notice.innerHTML = `⚠️ Terjadi error koneksi: ${err}`;
+      btn.disabled = false;
+      btn.innerText = '📲 Coba Minta Lagi';
+    }
+  }
+
+  async function verifyOTP() {
+    const input = document.getElementById('otpInput');
+    const code = input.value.trim();
+    if (code.length < 6) {
+      alert('Harap masukkan 6-digit kode OTP lengkap!');
+      return;
+    }
+
+    const btn = document.getElementById('btnVerifyOtp');
+    const notice = document.getElementById('otpNotice');
+    btn.disabled = true;
+    btn.innerText = 'Memverifikasi...';
+
+    try {
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        notice.style.display = 'block';
+        notice.style.background = 'rgba(34, 197, 94, 0.15)';
+        notice.style.border = '1px solid #22c55e';
+        notice.style.color = '#4ade80';
+        notice.innerHTML = '🎉 <strong>Login Berhasil!</strong> Sesi admin aktif.';
+        setTimeout(() => {
+          closeOtpModal();
+          checkAuthStatus();
+        }, 1200);
+      } else {
+        notice.style.display = 'block';
+        notice.style.background = 'rgba(239, 68, 68, 0.15)';
+        notice.style.border = '1px solid #ef4444';
+        notice.style.color = '#f87171';
+        notice.innerHTML = `⚠️ ${data.message || 'Kode OTP tidak valid'}`;
+        input.value = '';
+        input.focus();
+      }
+    } catch (err) {
+      alert('Gagal verifikasi: ' + err);
+    } finally {
+      btn.disabled = false;
+      btn.innerText = '✅ Verifikasi & Masuk';
+    }
   }
 
   async function checkUpdate() {
@@ -584,6 +840,13 @@
     btn.innerText = 'Mengunduh & Memasang...';
     try {
       const res = await fetch('/api/admin/update', { method: 'POST' });
+      if (res.status === 401) {
+        alert('Aksi memerlukan login admin! Silakan verifikasi OTP Telegram.');
+        openOtpModal();
+        btn.disabled = false;
+        btn.innerText = '🚀 Update Sekarang';
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         alert(data.message + '\n\nHalaman akan dimuat ulang dalam 5 detik...');
@@ -605,6 +868,7 @@
 
   loadComics();
   checkUpdate();
+  checkAuthStatus();
 </script>
 </body>
 </html>

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"comic_reader/pkg/model"
+	"comic_reader/server/internal/auth"
 	"comic_reader/server/internal/gdrive"
 	"comic_reader/server/internal/gscraper"
 	"comic_reader/server/internal/manga"
@@ -23,13 +24,15 @@ import (
 type Handler struct {
 	store     *store.Store
 	pdfEngine *pdfengine.Engine
+	authMgr   *auth.Manager
 	version   string
 }
 
-func NewHandler(st *store.Store, pdfEng *pdfengine.Engine, version string) *Handler {
+func NewHandler(st *store.Store, pdfEng *pdfengine.Engine, authMgr *auth.Manager, version string) *Handler {
 	return &Handler{
 		store:     st,
 		pdfEngine: pdfEng,
+		authMgr:   authMgr,
 		version:   version,
 	}
 }
@@ -39,6 +42,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/comics/upload", h.handleUploadComic)
 	mux.HandleFunc("/api/comics/", h.handleComicItem)
 	mux.HandleFunc("/api/manga/search", h.handleMangaSearch)
+	mux.HandleFunc("/api/auth/status", h.handleAuthStatus)
+	mux.HandleFunc("/api/auth/request-otp", h.handleRequestOTP)
+	mux.HandleFunc("/api/auth/verify-otp", h.handleVerifyOTP)
+	mux.HandleFunc("/api/auth/logout", h.handleLogout)
 	mux.HandleFunc("/api/admin/version", h.handleVersion)
 	mux.HandleFunc("/api/admin/update", h.handleUpdate)
 }
@@ -75,6 +82,11 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !h.checkAuth(r) {
+		http.Error(w, "Unauthorized: Silakan login terlebih dahulu via Telegram OTP", http.StatusUnauthorized)
 		return
 	}
 
@@ -121,6 +133,11 @@ func (h *Handler) handleComics(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(comics)
 
 	case http.MethodPost:
+		if !h.checkAuth(r) {
+			http.Error(w, "Unauthorized: Silakan login terlebih dahulu via Telegram OTP", http.StatusUnauthorized)
+			return
+		}
+
 		var req model.CreateComicRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
@@ -214,6 +231,10 @@ func (h *Handler) handleComicItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.Method == http.MethodDelete {
+			if !h.checkAuth(r) {
+				http.Error(w, "Unauthorized: Silakan login terlebih dahulu via Telegram OTP", http.StatusUnauthorized)
+				return
+			}
 			h.store.Delete(comicID)
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -281,6 +302,11 @@ func (h *Handler) handleUploadComic(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !h.checkAuth(r) {
+		http.Error(w, "Unauthorized: Silakan login terlebih dahulu via Telegram OTP", http.StatusUnauthorized)
 		return
 	}
 
@@ -373,5 +399,161 @@ func (h *Handler) handleMangaSearch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(results)
+}
+
+func (h *Handler) checkAuth(r *http.Request) bool {
+	if h.authMgr == nil {
+		return true
+	}
+	// Periksa cookie "comic_session"
+	if cookie, err := r.Cookie("comic_session"); err == nil && cookie.Value != "" {
+		if h.authMgr.ValidateSession(cookie.Value) {
+			return true
+		}
+	}
+	// Periksa header Authorization: Bearer <token>
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if h.authMgr.ValidateSession(token) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method == http.MethodOptions {
+		return
+	}
+
+	hasAdmin, botUser, adminUser := false, "", ""
+	if h.authMgr != nil {
+		hasAdmin, botUser, adminUser = h.authMgr.GetStatus()
+	}
+	isAuth := h.checkAuth(r)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"authenticated":    isAuth,
+		"is_authenticated": isAuth,
+		"has_admin":        hasAdmin,
+		"bot_username":     botUser,
+		"admin_username":   adminUser,
+	})
+}
+
+func (h *Handler) handleRequestOTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if h.authMgr == nil {
+		http.Error(w, "Auth manager tidak aktif", http.StatusInternalServerError)
+		return
+	}
+
+	msg, err := h.authMgr.RequestOTP()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": msg,
+	})
+}
+
+func (h *Handler) handleVerifyOTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	sessionToken, err := h.authMgr.VerifyOTP(req.Code)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Set HTTP Cookie untuk web browser
+	http.SetCookie(w, &http.Cookie{
+		Name:     "comic_session",
+		Value:    sessionToken,
+		Path:     "/",
+		MaxAge:   7 * 24 * 3600, // 7 hari
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"token":   sessionToken,
+		"message": "Login berhasil!",
+	})
+}
+
+func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method == http.MethodOptions {
+		return
+	}
+
+	if cookie, err := r.Cookie("comic_session"); err == nil && cookie.Value != "" {
+		if h.authMgr != nil {
+			h.authMgr.RevokeSession(cookie.Value)
+		}
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "comic_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Berhasil logout",
+	})
 }
 

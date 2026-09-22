@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
+EnvironmentFile=-/etc/default/comic-reader-server
 ExecStart=/usr/bin/comic-reader-server -port 8080 -data /var/lib/comic-reader
 Restart=always
 RestartSec=5

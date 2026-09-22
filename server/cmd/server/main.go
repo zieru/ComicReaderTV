@@ -9,20 +9,27 @@ import (
 	"path/filepath"
 
 	"comic_reader/server/internal/api"
+	"comic_reader/server/internal/auth"
 	"comic_reader/server/internal/pdfengine"
 	"comic_reader/server/internal/store"
 	"comic_reader/server/internal/updater"
 	"comic_reader/server/web"
 )
 
-var Version = "1.0.4"
+var Version = "1.0.5"
 
 func main() {
 	port := flag.Int("port", 8080, "Port untuk server katalog")
 	dataDir := flag.String("data", "./data", "Direktori penyimpanan data dan cache")
+	botToken := flag.String("bot-token", "8978586484:AAFfLbux2a-88MLJbplns9Kz4VDfJzdtgi0", "Telegram Bot Token untuk autentikasi OTP")
+	chatID := flag.Int64("chat-id", 0, "Telegram Chat ID Admin (opsional, dapat terdeteksi otomatis via /start)")
 	showVersion := flag.Bool("v", false, "Tampilkan versi server")
 	doUpdate := flag.Bool("update", false, "Periksa dan pasang pembaruan terbaru dari GitHub")
 	flag.Parse()
+
+	if envToken := os.Getenv("TELEGRAM_BOT_TOKEN"); envToken != "" && *botToken == "8978586484:AAFfLbux2a-88MLJbplns9Kz4VDfJzdtgi0" {
+		*botToken = envToken
+	}
 
 	if *showVersion {
 		fmt.Printf("Comic Reader Catalog Server v%s\n", Version)
@@ -61,9 +68,12 @@ func main() {
 		log.Fatalf("Gagal inisialisasi pdf engine: %v", err)
 	}
 
-	// 3. Setup HTTP Handler
+	// 3. Inisialisasi Auth Manager (Telegram Bot OTP)
+	authMgr := auth.NewManager(*botToken, filepath.Join(*dataDir, "auth"), *chatID)
+
+	// 4. Setup HTTP Handler
 	mux := http.NewServeMux()
-	apiHandler := api.NewHandler(catalogStore, pdfEngine, Version)
+	apiHandler := api.NewHandler(catalogStore, pdfEngine, authMgr, Version)
 	apiHandler.RegisterRoutes(mux)
 
 	// 4. Serve Web Admin Dashboard
