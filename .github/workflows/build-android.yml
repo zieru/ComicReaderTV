@@ -62,7 +62,7 @@ jobs:
       - name: Build Android TV APK
         run: |
           # Kompilasi aplikasi client menjadi file APK Android
-          gogio -target android -appversion 1.0.0 -appid com.comicreader.tv -o comic_reader_tv.apk ./client/cmd/tv
+          gogio -target android -version 1.0.0.1 -minsdk 21 -targetsdk 33 -appid com.comicreader.tv -o comic_reader_tv.apk ./client/cmd/tv
 
       - name: Sign APK (Jika ada keystore secret)
         if: env.KEYSTORE_BASE64 != ''
