@@ -1,4 +1,4 @@
-name: Build Android TV APK & Release
+name: Build Android TV APK & Server Deb
 
 on:
   push:
@@ -9,7 +9,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-android:
+    name: Build Android TV APK
     # Trigger jika manual, tag release v*, atau commit message mengandung keyword:
     # - Conventional commits: 'feat', 'fix', 'build', 'chore', 'release'
     # - Atau tag khusus: '[build]'
@@ -82,11 +83,68 @@ jobs:
           name: comic-reader-tv-apk
           path: comic_reader_tv.apk
 
+  build-server-deb:
+    name: Build Server Deb (Linux x64)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v') ||
+      contains(github.event.head_commit.message, 'feat') ||
+      contains(github.event.head_commit.message, 'fix') ||
+      contains(github.event.head_commit.message, 'build') ||
+      contains(github.event.head_commit.message, 'chore') ||
+      contains(github.event.head_commit.message, 'release') ||
+      contains(github.event.head_commit.message, '[build]')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build Server Linux x64
+        run: |
+          mkdir -p server/build/package/usr/bin
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o server/build/package/usr/bin/comic-reader-server ./server/cmd/server
+          chmod +x server/build/package/usr/bin/comic-reader-server
+
+      - name: Package .deb
+        run: |
+          mkdir -p server/build/package/var/lib/comic-reader
+          dpkg-deb --build --root-owner-group server/build/package comic-reader-server_1.0.0_amd64.deb
+
+      - name: Upload Server Deb Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: comic-reader-server-deb
+          path: comic-reader-server_1.0.0_amd64.deb
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-android, build-server-deb]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: comic-reader-tv-apk
+
+      - name: Download Deb Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: comic-reader-server-deb
+
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: comic_reader_tv.apk
+          files: |
+            comic_reader_tv.apk
+            comic-reader-server_1.0.0_amd64.deb
           draft: false
           prerelease: false
           generate_release_notes: true

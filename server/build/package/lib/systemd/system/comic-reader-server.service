@@ -1,0 +1,14 @@
+[Unit]
+Description=Comic Reader Catalog Server & Web Admin Dashboard
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/comic-reader-server -port 8080 -data /var/lib/comic-reader
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=/var/lib/comic-reader
+
+[Install]
+WantedBy=multi-user.target

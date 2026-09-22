@@ -11,6 +11,9 @@
 /bin/
 /dist/
 /release/
+*.deb
+server/build/package/usr/
+server/build/package/var/
 
 # Application runtime data & cache
 data/
