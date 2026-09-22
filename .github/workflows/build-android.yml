@@ -2,12 +2,26 @@ name: Build Android TV APK & Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
 
 jobs:
   build:
+    # Trigger jika manual, tag release v*, atau commit message mengandung keyword:
+    # - Conventional commits: 'feat', 'fix', 'build', 'chore', 'release'
+    # - Atau tag khusus: '[build]'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v') ||
+      contains(github.event.head_commit.message, 'feat') ||
+      contains(github.event.head_commit.message, 'fix') ||
+      contains(github.event.head_commit.message, 'build') ||
+      contains(github.event.head_commit.message, 'chore') ||
+      contains(github.event.head_commit.message, 'release') ||
+      contains(github.event.head_commit.message, '[build]')
     runs-on: ubuntu-latest
 
     steps:
