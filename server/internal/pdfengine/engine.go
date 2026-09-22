@@ -1,21 +1,23 @@
 package pdfengine
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-
 	"sync"
+	"time"
 
 	"comic_reader/server/internal/gdrive"
+	"comic_reader/server/internal/gscraper"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
-
 )
 
 type Engine struct {
@@ -121,6 +123,23 @@ func (e *Engine) EnsureLocalPDF(comicID, sourceURL string) (string, error) {
 		}
 		reader, err = e.gdriveCli.DownloadFile(fileID)
 		if err != nil {
+			errStr := strings.ToLower(err.Error())
+			// Cek apakah error karena proteksi izin view-only atau pemutusan koneksi Google Drive
+			if strings.Contains(errStr, "dinonaktifkan oleh pemilik") ||
+				strings.Contains(errStr, "permission to download") ||
+				strings.Contains(errStr, "response body closed") ||
+				strings.Contains(errStr, "forbidden") {
+
+				log.Printf("File Google Drive %s terproteksi view-only. Mengalihkan ke headless scraper...", fileID)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+
+				scrapeErr := gscraper.DownloadViewOnlyPDF(ctx, fileID, localPath)
+				if scrapeErr == nil {
+					return localPath, nil
+				}
+				return "", fmt.Errorf("unduhan langsung terproteksi (%v), dan headless browser fallback gagal: %w", err, scrapeErr)
+			}
 			return "", fmt.Errorf("gagal download gdrive file: %w", err)
 		}
 	} else {

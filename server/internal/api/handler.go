@@ -13,6 +13,8 @@ import (
 
 	"comic_reader/pkg/model"
 	"comic_reader/server/internal/gdrive"
+	"comic_reader/server/internal/gscraper"
+	"comic_reader/server/internal/manga"
 	"comic_reader/server/internal/pdfengine"
 	"comic_reader/server/internal/store"
 	"comic_reader/server/internal/updater"
@@ -36,6 +38,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/comics", h.handleComics)
 	mux.HandleFunc("/api/comics/upload", h.handleUploadComic)
 	mux.HandleFunc("/api/comics/", h.handleComicItem)
+	mux.HandleFunc("/api/manga/search", h.handleMangaSearch)
 	mux.HandleFunc("/api/admin/version", h.handleVersion)
 	mux.HandleFunc("/api/admin/update", h.handleUpdate)
 }
@@ -50,8 +53,19 @@ func (h *Handler) handleVersion(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Gagal cek rilis GitHub: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	type versionResponse struct {
+		updater.VersionCheckResult
+		HasBrowser  bool   `json:"has_browser"`
+		BrowserPath string `json:"browser_path"`
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	json.NewEncoder(w).Encode(versionResponse{
+		VersionCheckResult: *res,
+		HasBrowser:         gscraper.HasBrowser(),
+		BrowserPath:        gscraper.BrowserPath(),
+	})
 }
 
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -329,3 +343,35 @@ func (h *Handler) handleUploadComic(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(comic)
 }
+
+func (h *Handler) handleMangaSearch(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]manga.Item{})
+		return
+	}
+
+	results, err := manga.Search(query)
+	if err != nil {
+		log.Printf("Gagal mencari manga '%s': %v", query, err)
+		http.Error(w, fmt.Sprintf("Gagal mencari manga: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+

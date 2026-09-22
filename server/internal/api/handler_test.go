@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"comic_reader/pkg/model"
+	"comic_reader/server/internal/manga"
 	"comic_reader/server/internal/pdfengine"
 	"comic_reader/server/internal/store"
 )
@@ -113,5 +114,29 @@ func TestUploadOptionsCORS(t *testing.T) {
 
 	if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
 		t.Errorf("Expected CORS origin *, got: %s", rec.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
+func TestMangaSearch(t *testing.T) {
+	_, mux, tempDir := setupTestServer(t)
+	defer os.RemoveAll(tempDir)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/manga/search?q=One+Piece", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", rec.Code)
+	}
+
+	var results []manga.Item
+	if err := json.NewDecoder(rec.Body).Decode(&results); err != nil {
+		t.Fatalf("Failed to decode results: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Logf("Warning: no results returned (might be network/rate limit)")
+	} else {
+		t.Logf("Found %d manga results for 'One Piece', first: %s", len(results), results[0].Title)
 	}
 }

@@ -33,8 +33,68 @@
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
+    /* Autocomplete */
+    .autocomplete-wrapper { position: relative; width: 100%; }
+    .autocomplete-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #1e293b;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      max-height: 320px;
+      overflow-y: auto;
+      z-index: 1000;
+      box-shadow: 0 14px 30px rgba(0,0,0,0.6);
+      display: none;
+      margin-top: -10px;
+      margin-bottom: 14px;
+    }
+    .autocomplete-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      transition: background 0.15s;
+    }
+    .autocomplete-item:hover { background: #334155; }
+    .autocomplete-item img {
+      width: 40px;
+      height: 56px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: #0f172a;
+      flex-shrink: 0;
+    }
+    .autocomplete-item-title { font-weight: 600; font-size: 14px; color: #f8fafc; }
+    .autocomplete-item-sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+    /* Cover Preview */
+    .cover-preview-box {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      margin-top: -6px;
+      margin-bottom: 14px;
+      padding: 8px 12px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid #334155;
+      border-radius: 8px;
+    }
+    .cover-preview-img {
+      width: 48px;
+      height: 68px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: #1e293b;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
     /* Dropzone */
-    .dropzone { border: 2px dashed #475569; border-radius: 10px; padding: 30px; text-align: center; background: rgba(15, 23, 42, 0.6); cursor: pointer; transition: all 0.2s; margin-bottom: 14px; }
+    .dropzone { border: 2px dashed #475569; border-radius: 10px; padding: 26px; text-align: center; background: rgba(15, 23, 42, 0.6); cursor: pointer; transition: all 0.2s; margin-bottom: 14px; }
     .dropzone:hover, .dropzone.dragover { border-color: var(--accent-cyan); background: rgba(56, 189, 248, 0.05); }
 
     /* Bypass Tool Box */
@@ -60,7 +120,8 @@
   <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 14px; margin-bottom: 22px;">
     <div>
       <h1 style="display: inline-block;">📚 Comic Catalog Manager</h1>
-      <span id="versionBadge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan); padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 10px; font-weight: 600;">v1.0.3</span>
+      <span id="versionBadge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan); padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 10px; font-weight: 600;">v1.0.4</span>
+      <span id="browserBadge" style="background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #4ade80; padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 6px; font-weight: 500;">Memeriksa Headless Scraper...</span>
     </div>
     <div id="updateContainer" style="display: flex; gap: 8px; align-items: center;">
       <button id="btnCheckUpdate" onclick="checkUpdate()" style="width: auto; margin: 0; padding: 7px 16px; font-size: 12px; background: var(--card-bg); color: #fff; border: 1px solid var(--card-border);">🔄 Cek Update</button>
@@ -77,18 +138,18 @@
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
       <div>
         <h3 style="margin: 0 0 6px 0; color: var(--accent-cyan); display: flex; align-items: center; gap: 8px;">
-          <span>⚡</span> Google Drive View-Only PDF Extractor
+          <span>⚡</span> Google Drive View-Only PDF Scraper
         </h3>
         <p style="margin: 0; color: var(--text-muted); font-size: 13px;">
-          Punya PDF di Google Drive yang dikunci pemiliknya (download & cetak dinonaktifkan)? Gunakan tool pintar ini untuk otomatis merekonstruksi dan mengimpornya langsung ke Comic Reader TV!
+          Punya PDF di Google Drive yang dikunci pemiliknya (opsi unduh dinonaktifkan)? Masukkan link di form bawah &mdash; backend server akan <strong>otomatis menggunakan Headless Browser</strong> untuk mengambilnya!
         </p>
       </div>
-      <span style="background: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; color: #4ade80; font-size: 11px; padding: 2px 8px; border-radius: 12px; white-space: nowrap; font-weight: 600;">Anti-Virtualization</span>
+      <span style="background: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; color: #4ade80; font-size: 11px; padding: 2px 8px; border-radius: 12px; white-space: nowrap; font-weight: 600;">Auto-Fallback Go-Rod</span>
     </div>
 
     <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 14px; background: rgba(0,0,0,0.3); padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
       <div>
-        <span style="font-size: 12px; color: #cbd5e1; margin-right: 8px; font-weight: 600;">1. Tarik tombol ini ke Bookmarks Bar:</span>
+        <span style="font-size: 12px; color: #cbd5e1; margin-right: 8px; font-weight: 600;">Opsi Cepat (Client Bookmarklet):</span>
         <a id="bookmarkletLink" class="btn-bookmarklet" href="#" title="Tarik tombol ini ke Bookmarks Bar browser Anda">
           ⚡ Import GDrive PDF
         </a>
@@ -101,7 +162,7 @@
       </div>
     </div>
     <div style="font-size: 11px; color: #94a3b8; margin-top: 10px;">
-      💡 <strong>Cara Pakai:</strong> Buka tab Google Drive PDF terproteksi &rarr; Klik bookmarklet atau paste kode ke Konsol DevTools (`F12`) &rarr; Biarkan auto-scroll berjalan &rarr; Klik <em>"Kirim Langsung ke Server TV"</em>.
+      💡 <strong>Tips:</strong> Jika di server terpasang Chromium (`sudo apt install -y chromium`), Anda cukup input link di form tab di bawah. Server akan otomatis memproses di background!
     </div>
   </div>
 
@@ -115,16 +176,27 @@
     <!-- Tab 1: URL / Google Drive -->
     <div id="url-tab" class="tab-content active">
       <form id="addForm">
-        <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Judul Komik / Manga:</label>
-        <input type="text" id="title" placeholder="Contoh: One Piece Chapter 1000" required>
+        <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Judul Komik / Manga (Ketik untuk Autocomplete & Cover Art):</label>
+        <div class="autocomplete-wrapper">
+          <input type="text" id="title" placeholder="Ketik nama manga (contoh: One Piece, Detective Conan, Naruto)..." autocomplete="off" required>
+          <div id="autocompleteDropdown" class="autocomplete-dropdown"></div>
+        </div>
+
+        <div id="coverPreviewBox" class="cover-preview-box">
+          <img id="coverPreviewImg" class="cover-preview-img" src="" alt="Cover Preview">
+          <div style="font-size: 12px;">
+            <div style="font-weight: 600; color: var(--accent-cyan);" id="coverPreviewTitle">Cover Art Terpilih</div>
+            <div style="font-size: 11px; color: var(--text-muted);">Cover resmi resolusi tinggi otomatis terpasang</div>
+          </div>
+        </div>
 
         <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Link Google Drive (Preview/View) atau Direct PDF URL:</label>
         <input type="url" id="source" placeholder="https://drive.google.com/file/d/1xxxx/preview" required>
 
-        <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">URL Sampul / Cover Image (Opsional):</label>
+        <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">URL Sampul / Cover Image (Opsional, terisi otomatis saat memilih manga):</label>
         <input type="url" id="cover" placeholder="https://example.com/cover.jpg">
 
-        <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Deskripsi (Opsional):</label>
+        <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Deskripsi / Sinopsis (Opsional, terisi otomatis):</label>
         <textarea id="desc" rows="2" placeholder="Deskripsi singkat komik..."></textarea>
 
         <button type="submit" style="background: var(--accent-cyan); color: #0f172a; margin-top: 10px;">➕ Simpan ke Katalog</button>
@@ -141,8 +213,19 @@
         </div>
         <input type="file" id="pdfFileInput" accept=".pdf" style="display: none;" onchange="handleFileSelected(this.files)">
 
-        <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Judul Komik (Otomatis dari nama file):</label>
-        <input type="text" id="uploadTitle" placeholder="Contoh: Naruto Volume 1" required>
+        <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Judul Komik (Ketik untuk Autocomplete & Cover Art):</label>
+        <div class="autocomplete-wrapper">
+          <input type="text" id="uploadTitle" placeholder="Contoh: Naruto Volume 1" autocomplete="off" required>
+          <div id="uploadAutocompleteDropdown" class="autocomplete-dropdown"></div>
+        </div>
+
+        <div id="uploadCoverPreviewBox" class="cover-preview-box">
+          <img id="uploadCoverPreviewImg" class="cover-preview-img" src="" alt="Cover Preview">
+          <div style="font-size: 12px;">
+            <div style="font-weight: 600; color: var(--accent-cyan);" id="uploadCoverPreviewTitle">Cover Art Terpilih</div>
+            <div style="font-size: 11px; color: var(--text-muted);">Cover resmi resolusi tinggi otomatis terpasang</div>
+          </div>
+        </div>
 
         <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">URL Sampul (Opsional):</label>
         <input type="url" id="uploadCover" placeholder="https://example.com/cover.jpg">
@@ -187,6 +270,77 @@
     }
   }
 
+  // Setup Manga Autocomplete
+  function setupMangaAutocomplete(inputId, dropdownId, coverInputId, descInputId, previewBoxId, previewImgId) {
+    const input = document.getElementById(inputId);
+    const dropdown = document.getElementById(dropdownId);
+    const coverInput = document.getElementById(coverInputId);
+    const descInput = document.getElementById(descInputId);
+    const previewBox = document.getElementById(previewBoxId);
+    const previewImg = document.getElementById(previewImgId);
+
+    let debounceTimer = null;
+
+    input.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      const q = input.value.trim();
+      if (q.length < 2) {
+        dropdown.style.display = 'none';
+        return;
+      }
+      debounceTimer = setTimeout(async () => {
+        try {
+          dropdown.innerHTML = '<div style="padding: 10px 14px; font-size: 12px; color: #94a3b8;">🔍 Mencari manga & cover...</div>';
+          dropdown.style.display = 'block';
+          const res = await fetch('/api/manga/search?q=' + encodeURIComponent(q));
+          const items = await res.json();
+          if (!items || items.length === 0) {
+            dropdown.innerHTML = '<div style="padding: 10px 14px; font-size: 12px; color: #64748b;">Tidak ditemukan manga yang cocok</div>';
+            return;
+          }
+          dropdown.innerHTML = '';
+          items.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'autocomplete-item';
+            div.innerHTML = `
+              <img src="${item.cover_url || ''}" onerror="this.style.display='none'">
+              <div style="flex: 1; overflow: hidden;">
+                <div class="autocomplete-item-title">${item.title}</div>
+                <div class="autocomplete-item-sub">${item.alt_title ? item.alt_title + ' • ' : ''}${item.year ? item.year : 'Manga'}</div>
+              </div>
+            `;
+            div.onclick = () => {
+              input.value = item.title;
+              if (coverInput && item.cover_url) {
+                coverInput.value = item.cover_url;
+                if (previewBox && previewImg) {
+                  previewImg.src = item.cover_url;
+                  previewBox.style.display = 'flex';
+                }
+              }
+              if (descInput && item.description && !descInput.value) {
+                descInput.value = item.description;
+              }
+              dropdown.style.display = 'none';
+            };
+            dropdown.appendChild(div);
+          });
+        } catch(err) {
+          dropdown.style.display = 'none';
+        }
+      }, 300);
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.style.display = 'none';
+      }
+    });
+  }
+
+  setupMangaAutocomplete('title', 'autocompleteDropdown', 'cover', 'desc', 'coverPreviewBox', 'coverPreviewImg');
+  setupMangaAutocomplete('uploadTitle', 'uploadAutocompleteDropdown', 'uploadCover', 'uploadDesc', 'uploadCoverPreviewBox', 'uploadCoverPreviewImg');
+
   // Setup Drag & Drop
   const dropzone = document.getElementById('dropzone');
   ['dragenter', 'dragover'].forEach(eventName => {
@@ -230,7 +384,6 @@
     try {
       const res = await fetch('/gdrive_pdf_extractor.js');
       const text = await res.text();
-      // Sisipkan server origin saat ini
       const customizedText = `window.__COMIC_READER_SERVER__ = "${window.location.origin}";\n` + text;
       await navigator.clipboard.writeText(customizedText);
       alert('✅ Kode skrip berhasil disalin ke clipboard!\n\nBuka tab Google Drive viewer PDF, tekan F12 (Console), paste kode dan tekan Enter.');
@@ -239,6 +392,7 @@
     }
   }
 
+  let hasProcessingComics = false;
   async function loadComics() {
     try {
       const res = await fetch('/api/comics');
@@ -248,16 +402,24 @@
         grid.innerHTML = '<p style="color: var(--text-muted); grid-column: 1 / -1;">Belum ada komik. Silakan tambahkan lewat form di atas!</p>';
         return;
       }
+
+      hasProcessingComics = false;
       data.forEach(c => {
         const card = document.createElement('div');
         card.className = 'comic-card';
         const isUploaded = c.source_type === 'uploaded_pdf';
         const badgeLabel = isUploaded ? '📁 PDF Upload' : (c.source_type === 'gdrive_pdf' ? '☁ GDrive' : '🔗 Direct');
+        
+        let subText = c.total_pages ? `${c.total_pages} Halaman` : '<span style="color: #fbbf24; font-weight: 600;">⏳ Sedang Memproses / Scraper...</span>';
+        if (!c.total_pages) {
+          hasProcessingComics = true;
+        }
+
         card.innerHTML = `
           <img src="${c.cover_url || '/api/comics/' + c.id + '/page/1'}" onerror="this.src='https://via.placeholder.com/210x270?text=No+Cover'" alt="${c.title}">
           <div class="comic-info">
             <div class="comic-title" title="${c.title}">${c.title}</div>
-            <div class="comic-sub">${c.total_pages ? c.total_pages + ' Halaman' : 'Processing...'}</div>
+            <div class="comic-sub">${subText}</div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
               <span class="badge">${badgeLabel}</span>
               <a href="/api/comics/${c.id}/pdf" class="btn-pdf" target="_blank" title="Unduh File PDF">⬇ PDF</a>
@@ -269,6 +431,11 @@
         `;
         grid.appendChild(card);
       });
+
+      // Auto poll jika ada komik yang sedang di-scrape di background
+      if (hasProcessingComics) {
+        setTimeout(loadComics, 6000);
+      }
     } catch(err) {
       grid.innerHTML = '<p>Gagal memuat katalog: ' + err + '</p>';
     }
@@ -316,6 +483,7 @@
             uploadForm.reset();
             selectedPdfFile = null;
             document.getElementById('dropzoneText').innerText = 'Klik untuk memilih file PDF atau tarik file ke sini';
+            document.getElementById('uploadCoverPreviewBox').style.display = 'none';
             pContainer.style.display = 'none';
             btn.disabled = false;
             btn.innerText = '🚀 Upload & Masukkan ke Katalog';
@@ -358,6 +526,7 @@
 
     if (res.ok) {
       form.reset();
+      document.getElementById('coverPreviewBox').style.display = 'none';
       loadComics();
     } else {
       const errText = await res.text();
@@ -379,6 +548,20 @@
       const res = await fetch('/api/admin/version');
       const data = await res.json();
       document.getElementById('versionBadge').innerText = data.current_version;
+
+      const bBadge = document.getElementById('browserBadge');
+      if (data.has_browser) {
+        bBadge.innerHTML = '🟢 Headless Scraper: Siap (Chromium)';
+        bBadge.style.borderColor = '#22c55e';
+        bBadge.style.color = '#4ade80';
+        bBadge.title = 'Path: ' + data.browser_path;
+      } else {
+        bBadge.innerHTML = '⚪ Headless Scraper: Butuh Chromium';
+        bBadge.style.borderColor = '#64748b';
+        bBadge.style.color = '#94a3b8';
+        bBadge.title = 'Pasang di server via "sudo apt install -y chromium" untuk aktivasi headless scraper.';
+      }
+
       if (data.has_update) {
         const banner = document.getElementById('updateBanner');
         banner.style.display = 'flex';
