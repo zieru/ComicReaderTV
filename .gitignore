@@ -1,0 +1,27 @@
+# Binaries / Executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.apk
+*.aab
+
+# Output builds
+/bin/
+/dist/
+/release/
+
+# Application runtime data & cache
+data/
+*.tmp
+
+# Keystore secrets
+*.keystore
+*.jks
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
