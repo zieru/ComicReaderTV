@@ -128,16 +128,20 @@ jobs:
     needs: [build-android, build-server-deb]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download APK Artifact
         uses: actions/download-artifact@v4
         with:
           name: comic-reader-tv-apk
+          path: .
 
       - name: Download Deb Artifact
         uses: actions/download-artifact@v4
         with:
           name: comic-reader-server-deb
+          path: .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
