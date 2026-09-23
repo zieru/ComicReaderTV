@@ -30,9 +30,9 @@ on:
         type: boolean
         default: true
       release_tag:
-        description: 'Nama Tag Release (misal: v1.0.10)'
+        description: 'Nama Tag Release (misal: v1.0.11)'
         required: true
-        default: 'v1.0.10'
+        default: 'v1.0.11'
 
 jobs:
   build-apk:
@@ -121,7 +121,7 @@ jobs:
           echo "Compiling ComicReaderTV for architecture: $TARGET_ARCH"
           gogio -target android \
             -arch "$TARGET_ARCH" \
-            -version 1.0.10.1 \
+            -version 1.0.11.1 \
             -minsdk 21 \
             -targetsdk 33 \
             -name "ComicReaderTV" \
@@ -158,8 +158,16 @@ jobs:
               --ks-key-alias "$KEY_ALIAS" \
               --key-pass "pass:$KEY_PASSWORD" \
               ComicReaderTV.apk
+          elif [ -f "tools/release.keystore" ]; then
+            echo "Signing with permanent repository release keystore..."
+            $ANDROID_HOME/build-tools/33.0.2/apksigner sign \
+              --ks tools/release.keystore \
+              --ks-pass pass:comicreadertv \
+              --ks-key-alias comicreadertv \
+              --key-pass pass:comicreadertv \
+              ComicReaderTV.apk
           else
-            echo "Generating consistent release keystore..."
+            echo "Fallback generating temporary release keystore..."
             keytool -genkey -v -keystore release.keystore \
               -storepass comicreadertv -alias comicreadertv -keypass comicreadertv \
               -keyalg RSA -keysize 2048 -validity 10000 \

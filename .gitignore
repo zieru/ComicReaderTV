@@ -22,6 +22,7 @@ data/
 # Keystore secrets
 *.keystore
 *.jks
+!tools/release.keystore
 
 # OS & Editor files
 .DS_Store

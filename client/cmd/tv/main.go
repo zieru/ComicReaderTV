@@ -52,7 +52,7 @@ func main() {
 		)
 
 		// Inisialisasi Auto Updater dengan repo zieru/ComicReaderTV
-		appUpdater := updater.NewUpdater("zieru", "ComicReaderTV", "v1.0.10")
+		appUpdater := updater.NewUpdater("zieru", "ComicReaderTV", "v1.0.11")
 		go func() {
 			if rel, hasUpdate, err := appUpdater.CheckUpdate(); err == nil && hasUpdate {
 				log.Printf("Pembaruan baru tersedia: %s (%s)", rel.Name, rel.TagName)
