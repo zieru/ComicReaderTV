@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <public type="mipmap" name="ic_launcher_adaptive" id="0x7f010001" />
+    <public type="mipmap" name="ic_launcher" id="0x7f010000" />
+    <public type="style" name="Theme.GioApp" id="0x7f020000" />
+</resources>

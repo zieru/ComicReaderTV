@@ -382,8 +382,8 @@ func (cv *CatalogView) renderHeroSpotlight(gtx layout.Context, th *material.Them
 	contentOffset.Pop()
 
 	// Tombol Aksi CTA: Diposisikan rapi di bagian bawah kiri Hero card
-	btnW := 250
-	btnH := 36
+	btnW := 280
+	btnH := 38
 	btnX := leftX
 	btnY := heroH - btnH - 16
 	btnOffset := op.Offset(image.Pt(btnX, btnY)).Push(gtx.Ops)
@@ -398,7 +398,7 @@ func (cv *CatalogView) renderHeroSpotlight(gtx layout.Context, th *material.Them
 	if cv.HeroFocused {
 		btnColor = color.NRGBA{R: 0, G: 200, B: 118, A: 255}
 		borderColor = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-		btnText = "▶ [ENTER] BACA SEKARANG"
+		btnText = "▶ BACA SEKARANG"
 	}
 
 	paint.FillShape(gtx.Ops, btnColor, br.Op(gtx.Ops))

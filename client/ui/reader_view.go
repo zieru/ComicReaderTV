@@ -216,15 +216,11 @@ func (rv *ReaderView) Layout(gtx layout.Context, th *material.Theme) layout.Dime
 		offsetX := (screenW - destW) / 2
 		offsetY := (screenH - destH) / 2
 
-		trans := f32.Affine2D{}.
-			Offset(f32.Pt(offsetX, offsetY)).
-			Scale(f32.Pt(0, 0), f32.Pt(scale, scale))
-
-		macro := op.Record(gtx.Ops)
-		op.Affine(trans).Add(gtx.Ops)
+		trans := f32.NewAffine2D(scale, 0, offsetX, 0, scale, offsetY)
+		transStack := op.Affine(trans).Push(gtx.Ops)
 		imgOp.Add(gtx.Ops)
 		paint.PaintOp{}.Add(gtx.Ops)
-		macro.Stop().Add(gtx.Ops)
+		transStack.Pop()
 
 		// 2. Render Kaca Pembesar Melayang (Floating Loupe) dengan Continuous Optical Projection
 		if rv.Loupe.Active {
