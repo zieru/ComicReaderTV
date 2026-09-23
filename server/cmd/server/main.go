@@ -28,7 +28,10 @@ func main() {
 	doUpdate := flag.Bool("update", false, "Periksa dan pasang pembaruan terbaru dari GitHub")
 	flag.Parse()
 
-	if envToken := os.Getenv("TELEGRAM_BOT_TOKEN"); envToken != "" && *botToken == "8978586484:AAFfLbux2a-88MLJbplns9Kz4VDfJzdtgi0" {
+	if envToken := os.Getenv("TELEGRAM_BOT_TOKEN"); envToken != "" {
+		*botToken = envToken
+	}
+	if envToken := os.Getenv("TELEGRAM_TOKEN"); envToken != "" {
 		*botToken = envToken
 	}
 

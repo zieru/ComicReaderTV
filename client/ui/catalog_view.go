@@ -169,13 +169,11 @@ func (cv *CatalogView) HandleKey(k RemoteKey) {
 			cv.triggerInvalidate()
 		}
 	case KeyUp:
-		// Berpindah fokus ke tombol aksi Hero Spotlight
 		if !cv.HeroFocused {
 			cv.HeroFocused = true
 			cv.triggerInvalidate()
 		}
 	case KeyDown:
-		// Kembali ke rak kartu komik
 		if cv.HeroFocused {
 			cv.HeroFocused = false
 			cv.triggerInvalidate()
@@ -190,7 +188,6 @@ func (cv *CatalogView) HandleKey(k RemoteKey) {
 
 // Layout merender seluruh antarmuka katalog Android TV model Leanback Launcher
 func (cv *CatalogView) Layout(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	// Latar belakang sinematik gelap Android TV
 	paint.Fill(gtx.Ops, color.NRGBA{R: 11, G: 14, B: 20, A: 255})
 
 	if cv.Loading {
@@ -226,192 +223,203 @@ func (cv *CatalogView) Layout(gtx layout.Context, th *material.Theme) layout.Dim
 	screenW := gtx.Constraints.Max.X
 	screenH := gtx.Constraints.Max.Y
 
-	// 1. Render Top Header Bar (Branding & Server Status)
-	cv.renderTopBar(gtx, th, screenW)
+	margin := 36
+	contentW := screenW - (margin * 2)
 
-	activeComic := cv.Comics[cv.FocusedIndex]
+	// 1. Top Bar
+	topBarH := 36
+	cv.renderTopBar(gtx, th, margin, contentW, topBarH)
 
-	// 2. Render Hero Spotlight (Panel Atas)
-	heroH := 265
-	if screenH < 650 {
-		heroH = 230
+	// 2. Hero Spotlight
+	heroY := topBarH + 12
+	heroH := screenH * 32 / 100 // 32% layar untuk Hero (sekitar 230px di 720p)
+	if heroH < 190 {
+		heroH = 190
 	}
-	cv.renderHeroSpotlight(gtx, th, activeComic, screenW, heroH)
+	if heroH > 250 {
+		heroH = 250
+	}
+	activeComic := cv.Comics[cv.FocusedIndex]
+	cv.renderHeroSpotlight(gtx, th, activeComic, margin, heroY, contentW, heroH)
 
-	// 3. Render Leanback Shelf / Carousel (Rak Bawah)
-	shelfY := 52 + heroH + 18
-	cv.renderHorizontalShelf(gtx, th, screenW, shelfY)
+	// 3. Shelf
+	shelfY := heroY + heroH + 16
+	shelfH := screenH - shelfY - 10
+	cv.renderHorizontalShelf(gtx, th, screenW, margin, shelfY, shelfH)
 
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
 
-func (cv *CatalogView) renderTopBar(gtx layout.Context, th *material.Theme, width int) {
-	barOffset := op.Offset(image.Pt(36, 16)).Push(gtx.Ops)
+// renderTopBar merender top bar branding + status menggunakan layout.Flex
+func (cv *CatalogView) renderTopBar(gtx layout.Context, th *material.Theme, marginX, contentW, barH int) {
+	barOffset := op.Offset(image.Pt(marginX, 12)).Push(gtx.Ops)
 	barGtx := gtx
 	barGtx.Constraints.Min = image.Pt(0, 0)
-	barGtx.Constraints.Max = image.Pt(width-72, 28)
+	barGtx.Constraints.Max = image.Pt(contentW, barH)
 
 	layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(barGtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			title := material.H6(th, "📺 COMIC READER TV")
+			title := material.Body1(th, "COMIC READER TV")
 			title.Color = color.NRGBA{R: 0, G: 229, B: 255, A: 255}
-			title.TextSize = unit.Sp(16)
+			title.TextSize = unit.Sp(15)
 			return title.Layout(gtx)
 		}),
-		layout.Rigid(layout.Spacer{Width: unit.Dp(16)}.Layout),
+		layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			pillW, pillH := 96, 22
-			pillRect := image.Rect(0, 0, pillW, pillH)
-			rrect := clip.UniformRRect(pillRect, 11)
-			paint.FillShape(gtx.Ops, color.NRGBA{R: 16, G: 38, B: 28, A: 220}, rrect.Op(gtx.Ops))
-			paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 230, B: 118, A: 160}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 1}.Op())
-
-			textOffset := op.Offset(image.Pt(10, 2)).Push(gtx.Ops)
+			gtx.Constraints.Min = image.Point{}
+			m := op.Record(gtx.Ops)
 			statusLbl := material.Caption(th, "● ONLINE")
 			statusLbl.Color = color.NRGBA{R: 0, G: 230, B: 118, A: 255}
 			statusLbl.TextSize = unit.Sp(10)
-			statusLbl.Layout(gtx)
-			textOffset.Pop()
+			dims := layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, statusLbl.Layout)
+			call := m.Stop()
 
-			return layout.Dimensions{Size: image.Pt(pillW, pillH)}
+			bgRect := image.Rect(0, 0, dims.Size.X, dims.Size.Y)
+			rrect := clip.UniformRRect(bgRect, dims.Size.Y/2)
+			paint.FillShape(gtx.Ops, color.NRGBA{R: 16, G: 38, B: 28, A: 220}, rrect.Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 230, B: 118, A: 120}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 1}.Op())
+			call.Add(gtx.Ops)
+			return dims
 		}),
 		layout.Flexed(1, layout.Spacer{}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			countText := fmt.Sprintf("%d Komik Tersedia", len(cv.Comics))
-			countLbl := material.Body2(th, countText)
-			countLbl.Color = color.NRGBA{R: 150, G: 160, B: 180, A: 255}
+			countText := fmt.Sprintf("%d Komik", len(cv.Comics))
+			countLbl := material.Caption(th, countText)
+			countLbl.Color = color.NRGBA{R: 140, G: 150, B: 170, A: 255}
 			return countLbl.Layout(gtx)
 		}),
 	)
 	barOffset.Pop()
 }
 
-func (cv *CatalogView) renderHeroSpotlight(gtx layout.Context, th *material.Theme, c model.Comic, screenW, heroH int) {
-	heroOffset := op.Offset(image.Pt(36, 52)).Push(gtx.Ops)
-	heroW := screenW - 72
+// renderHeroSpotlight merender panel info komik terpilih di area atas
+func (cv *CatalogView) renderHeroSpotlight(gtx layout.Context, th *material.Theme, c model.Comic, marginX, heroY, contentW, heroH int) {
+	heroOffset := op.Offset(image.Pt(marginX, heroY)).Push(gtx.Ops)
 
-	// Latar belakang panel Hero transparan
-	heroRect := image.Rect(0, 0, heroW, heroH)
-	rrect := clip.UniformRRect(heroRect, 16)
-	paint.FillShape(gtx.Ops, color.NRGBA{R: 18, G: 23, B: 34, A: 180}, rrect.Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 20}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 1}.Op())
+	// Background panel Hero: rounded 12, sleek glassmorphism
+	heroRect := image.Rect(0, 0, contentW, heroH)
+	rrect := clip.UniformRRect(heroRect, 12)
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 16, G: 21, B: 32, A: 220}, rrect.Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 18}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 1}.Op())
 
-	// Poster Besar di Sebelah Kanan
-	posterW := 155
-	posterH := int(float32(posterW) * 1.45)
-	if posterH > heroH-24 {
-		posterH = heroH - 24
-		posterW = int(float32(posterH) / 1.45)
+	// Poster Besar di Sebelah Kanan (proporsional)
+	posterH := heroH - 24
+	posterW := int(float32(posterH) / 1.45)
+	if posterW > contentW/3 {
+		posterW = contentW / 3
+		posterH = int(float32(posterW) * 1.45)
 	}
-	posterX := heroW - posterW - 24
+	posterX := contentW - posterW - 16
 	posterY := (heroH - posterH) / 2
 	cv.renderPoster(gtx, th, c, posterX, posterY, posterW, posterH, true)
 
 	// Kolom Kiri: Metadata & Sinopsis
-	leftX := 28
-	leftY := 16
-	leftW := posterX - leftX - 24
-	contentOffset := op.Offset(image.Pt(leftX, leftY)).Push(gtx.Ops)
+	leftPad := 20
+	leftW := posterX - leftPad - 16
+	contentOffset := op.Offset(image.Pt(leftPad, 14)).Push(gtx.Ops)
 	leftGtx := gtx
 	leftGtx.Constraints.Min = image.Pt(0, 0)
-	leftGtx.Constraints.Max = image.Pt(leftW, heroH-70)
+	leftGtx.Constraints.Max = image.Pt(leftW, heroH-60)
 
 	layout.Flex{Axis: layout.Vertical}.Layout(leftGtx,
-		// Badge Label "⭐ KOMIK PILIHAN"
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			tagRect := image.Rect(0, 0, 120, 20)
-			r := clip.UniformRRect(tagRect, 5)
-			paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 120, B: 215, A: 220}, r.Op(gtx.Ops))
-			tagOffset := op.Offset(image.Pt(8, 2)).Push(gtx.Ops)
-			tag := material.Caption(th, "⭐ KOMIK PILIHAN")
-			tag.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-			tag.TextSize = unit.Sp(10)
-			tag.Layout(gtx)
-			tagOffset.Pop()
-			return layout.Dimensions{Size: image.Pt(120, 20)}
-		}),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-		// Judul Komik Utama
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			title := material.H5(th, c.Title)
-			title.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-			return title.Layout(gtx)
-		}),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-		// Badges: Halaman, Format, ID
+		// Badge Label Row
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					pageStr := fmt.Sprintf("📄 %d Halaman", c.TotalPages)
-					lbl := material.Body2(th, pageStr)
+					gtx.Constraints.Min = image.Point{}
+					m := op.Record(gtx.Ops)
+					tag := material.Caption(th, "KOMIK PILIHAN")
+					tag.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+					tag.TextSize = unit.Sp(9)
+					dims := layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, tag.Layout)
+					call := m.Stop()
+
+					bgRect := image.Rect(0, 0, dims.Size.X, dims.Size.Y)
+					r := clip.UniformRRect(bgRect, 4)
+					paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 120, B: 215, A: 220}, r.Op(gtx.Ops))
+					call.Add(gtx.Ops)
+					return dims
+				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					pageStr := fmt.Sprintf("%d Halaman", c.TotalPages)
+					lbl := material.Caption(th, pageStr)
 					lbl.Color = color.NRGBA{R: 0, G: 229, B: 255, A: 255}
+					lbl.TextSize = unit.Sp(10)
 					return lbl.Layout(gtx)
 				}),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(16)}.Layout),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(10)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Body2(th, "⚡ Format PDF HD")
+					lbl := material.Caption(th, "PDF HD")
 					lbl.Color = color.NRGBA{R: 255, G: 180, B: 0, A: 255}
-					return lbl.Layout(gtx)
-				}),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(16)}.Layout),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Body2(th, "ID: #"+c.ID)
-					lbl.Color = color.NRGBA{R: 140, G: 150, B: 170, A: 255}
+					lbl.TextSize = unit.Sp(10)
 					return lbl.Layout(gtx)
 				}),
 			)
 		}),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
-		// Sinopsis Singkat (Pembersihan newline dan batasan panjang rapi)
+		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
+		// Judul Komik
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			title := material.H6(th, c.Title)
+			title.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+			title.TextSize = unit.Sp(18)
+			title.MaxLines = 1
+			return title.Layout(gtx)
+		}),
+		layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
+		// Sinopsis
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			desc := c.Description
 			if desc == "" {
-				desc = "Buka dan nikmati pembacaan komik beresolusi tinggi langsung dengan remote kontrol Android TV."
+				desc = "Nikmati pembacaan komik resolusi tinggi langsung dengan remote Android TV."
 			}
 			desc = strings.ReplaceAll(desc, "\r\n", " ")
 			desc = strings.ReplaceAll(desc, "\n", " ")
 			desc = strings.Join(strings.Fields(desc), " ")
-			if len(desc) > 135 {
-				desc = desc[:132] + "..."
+			if len(desc) > 120 {
+				desc = desc[:117] + "..."
 			}
-			descLbl := material.Body2(th, desc)
-			descLbl.Color = color.NRGBA{R: 180, G: 190, B: 205, A: 255}
+			descLbl := material.Caption(th, desc)
+			descLbl.Color = color.NRGBA{R: 165, G: 175, B: 195, A: 255}
+			descLbl.TextSize = unit.Sp(11)
+			descLbl.MaxLines = 2
 			return descLbl.Layout(gtx)
 		}),
 	)
 	contentOffset.Pop()
 
-	// Tombol Aksi CTA: Diposisikan rapi di bagian bawah kiri Hero card
-	btnW := 280
-	btnH := 38
-	btnX := leftX
-	btnY := heroH - btnH - 16
-	btnOffset := op.Offset(image.Pt(btnX, btnY)).Push(gtx.Ops)
+	// Tombol CTA: dinamis di bawah kiri Hero
+	btnY := heroH - 42
+	btnOffset := op.Offset(image.Pt(leftPad, btnY)).Push(gtx.Ops)
+	btnGtx := gtx
+	btnGtx.Constraints.Min = image.Point{}
+	btnGtx.Constraints.Max = image.Pt(leftW, 34)
 
-	btnRect := image.Rect(0, 0, btnW, btnH)
-	br := clip.UniformRRect(btnRect, 10)
-
-	btnColor := color.NRGBA{R: 0, G: 140, B: 235, A: 240}
-	borderColor := color.NRGBA{R: 0, G: 229, B: 255, A: 255}
-	btnText := "▶ Tekan [OK] untuk Membaca"
-
+	btnColor := color.NRGBA{R: 18, G: 32, B: 50, A: 240}
+	borderColor := color.NRGBA{R: 0, G: 200, B: 255, A: 180}
+	textColor := color.NRGBA{R: 0, G: 229, B: 255, A: 255}
+	btnText := "OK  •  BACA SEKARANG"
 	if cv.HeroFocused {
-		btnColor = color.NRGBA{R: 0, G: 200, B: 118, A: 255}
+		btnColor = color.NRGBA{R: 0, G: 195, B: 235, A: 255}
 		borderColor = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-		btnText = "▶ BACA SEKARANG"
+		textColor = color.NRGBA{R: 10, G: 15, B: 25, A: 255}
+		btnText = "▶  BACA SEKARANG (Tekan OK)"
 	}
 
-	paint.FillShape(gtx.Ops, btnColor, br.Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, borderColor, clip.Stroke{Path: br.Path(gtx.Ops), Width: 2}.Op())
-
-	btnTextOffset := op.Offset(image.Pt(16, 8)).Push(gtx.Ops)
+	m := op.Record(btnGtx.Ops)
 	lbl := material.Body2(th, btnText)
-	lbl.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-	lbl.Layout(gtx)
-	btnTextOffset.Pop()
+	lbl.Color = textColor
+	lbl.TextSize = unit.Sp(12)
+	btnDims := layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(16)}.Layout(btnGtx, lbl.Layout)
+	btnCall := m.Stop()
+
+	btnRect := image.Rect(0, 0, btnDims.Size.X, btnDims.Size.Y)
+	br := clip.UniformRRect(btnRect, 6)
+	paint.FillShape(btnGtx.Ops, btnColor, br.Op(btnGtx.Ops))
+	paint.FillShape(btnGtx.Ops, borderColor, clip.Stroke{Path: br.Path(btnGtx.Ops), Width: 1.5}.Op())
+	btnCall.Add(btnGtx.Ops)
 
 	btnOffset.Pop()
-
 	heroOffset.Pop()
 }
 
@@ -443,40 +451,65 @@ func (cv *CatalogView) renderPoster(gtx layout.Context, th *material.Theme, c mo
 			transStack.Pop()
 		}
 	} else {
-		subText := material.Caption(th, "📖 Cover")
-		subText.Color = color.NRGBA{R: 120, G: 130, B: 150, A: 255}
-		tOffset := op.Offset(image.Pt(w/2-24, h/2-8)).Push(gtx.Ops)
+		subText := material.Caption(th, "Cover")
+		subText.Color = color.NRGBA{R: 100, G: 110, B: 130, A: 255}
+		tOffset := op.Offset(image.Pt(w/2-20, h/2-8)).Push(gtx.Ops)
 		subText.Layout(gtx)
 		tOffset.Pop()
 	}
 	clipArea.Pop()
 
 	if isHero {
-		paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 229, B: 255, A: 160}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 2}.Op())
+		paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 229, B: 255, A: 140}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 2}.Op())
 	}
 
 	posterOffset.Pop()
 }
 
-func (cv *CatalogView) renderHorizontalShelf(gtx layout.Context, th *material.Theme, screenW, shelfY int) {
+func (cv *CatalogView) renderHorizontalShelf(gtx layout.Context, th *material.Theme, screenW, margin, shelfY, shelfH int) {
 	shelfOffset := op.Offset(image.Pt(0, shelfY)).Push(gtx.Ops)
 
-	// Judul Section Rak
-	titleOffset := op.Offset(image.Pt(36, 0)).Push(gtx.Ops)
-	shelfTitle := material.Body1(th, "📚 KOLEKSI KOMIK")
-	shelfTitle.Color = color.NRGBA{R: 220, G: 225, B: 240, A: 255}
-	shelfTitle.Layout(gtx)
+	// Judul Section (Header Bar)
+	titleOffset := op.Offset(image.Pt(margin, 0)).Push(gtx.Ops)
+	titleGtx := gtx
+	titleGtx.Constraints.Min = image.Point{}
+	titleGtx.Constraints.Max = image.Pt(screenW-margin*2, 24)
+
+	layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(titleGtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			shelfTitle := material.Caption(th, "KOLEKSI KOMIK")
+			shelfTitle.Color = color.NRGBA{R: 215, G: 225, B: 245, A: 255}
+			shelfTitle.TextSize = unit.Sp(12)
+			return shelfTitle.Layout(gtx)
+		}),
+		layout.Rigid(layout.Spacer{Width: unit.Dp(16)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			hint := material.Caption(th, "Gunakan Kiri / Kanan pada Remote TV")
+			hint.Color = color.NRGBA{R: 120, G: 130, B: 155, A: 255}
+			hint.TextSize = unit.Sp(10)
+			return hint.Layout(gtx)
+		}),
+	)
 	titleOffset.Pop()
 
-	cardW := 145
-	cardH := int(float32(cardW) * 1.45)
-	cardGap := 22
-	cardsY := 28
+	// Posisi kartu: cardsY diatur ke 34 agar ada jarak aman dari header (0..24),
+	// sehingga saat scale 1.05 kartu tidak akan pernah menimpa teks "KOLEKSI KOMIK"!
+	cardsY := 34
+	availH := shelfH - cardsY - 32
+	cardH := availH
+	if cardH > 245 {
+		cardH = 245
+	}
+	if cardH < 120 {
+		cardH = 120
+	}
+	cardW := int(float32(cardH) / 1.45)
+	cardGap := 18
 
 	// Auto-Scroll Horizontal
 	cardStride := cardW + cardGap
 	centerTargetX := (screenW / 2) - (cardW / 2)
-	currentCardX := 36 + (cv.FocusedIndex * cardStride)
+	currentCardX := margin + (cv.FocusedIndex * cardStride)
 
 	scrollOffsetX := 0
 	if currentCardX > centerTargetX {
@@ -484,7 +517,7 @@ func (cv *CatalogView) renderHorizontalShelf(gtx layout.Context, th *material.Th
 	}
 
 	for i, c := range cv.Comics {
-		cardX := 36 + (i * cardStride) + scrollOffsetX
+		cardX := margin + (i * cardStride) + scrollOffsetX
 		if cardX+cardW+cardGap < 0 || cardX > screenW+50 {
 			continue
 		}
@@ -499,7 +532,7 @@ func (cv *CatalogView) renderHorizontalShelf(gtx layout.Context, th *material.Th
 func (cv *CatalogView) renderShelfCard(gtx layout.Context, th *material.Theme, c model.Comic, idx, x, y, w, h int, isFocused bool) {
 	scale := float32(1.0)
 	if isFocused {
-		scale = 1.08 // Efek Pop-Up saat disorot remote TV
+		scale = 1.05
 	}
 
 	wScaled := int(float32(w) * scale)
@@ -514,9 +547,9 @@ func (cv *CatalogView) renderShelfCard(gtx layout.Context, th *material.Theme, c
 
 	renderCardContent := func(gtx layout.Context) layout.Dimensions {
 		cardRect := image.Rect(0, 0, wScaled, hScaled)
-		rrect := clip.UniformRRect(cardRect, 10)
+		rrect := clip.UniformRRect(cardRect, 8)
 
-		paint.FillShape(gtx.Ops, color.NRGBA{R: 25, G: 32, B: 45, A: 255}, rrect.Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, color.NRGBA{R: 20, G: 26, B: 38, A: 255}, rrect.Op(gtx.Ops))
 
 		cv.coversMu.RLock()
 		imgOp, hasCover := cv.covers[c.ID]
@@ -539,19 +572,19 @@ func (cv *CatalogView) renderShelfCard(gtx layout.Context, th *material.Theme, c
 				transStack.Pop()
 			}
 		} else {
-			subText := material.Caption(th, "📖 Memuat...")
-			subText.Color = color.NRGBA{R: 120, G: 130, B: 150, A: 255}
-			tOffset := op.Offset(image.Pt(wScaled/2-32, hScaled/2-8)).Push(gtx.Ops)
+			subText := material.Caption(th, "...")
+			subText.Color = color.NRGBA{R: 100, G: 110, B: 130, A: 255}
+			tOffset := op.Offset(image.Pt(wScaled/2-8, hScaled/2-6)).Push(gtx.Ops)
 			subText.Layout(gtx)
 			tOffset.Pop()
 		}
 		clipCard.Pop()
 
-		// Border sorot remote TV
+		// Border fokus
 		if isFocused {
-			paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 229, B: 255, A: 255}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 3.5}.Op())
+			paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 229, B: 255, A: 255}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 3}.Op())
 		} else {
-			paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 25}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 1}.Op())
+			paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 20}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 0.5}.Op())
 		}
 
 		return layout.Dimensions{Size: image.Pt(wScaled, hScaled)}
@@ -567,13 +600,16 @@ func (cv *CatalogView) renderShelfCard(gtx layout.Context, th *material.Theme, c
 	// Label Judul di Bawah Kartu
 	titleOffset := op.Offset(image.Pt(xScaled, yScaled+hScaled+8)).Push(gtx.Ops)
 	titleGtx := gtx
+	titleGtx.Constraints.Min = image.Point{}
 	titleGtx.Constraints.Max.X = wScaled
 
-	titleText := material.Body2(th, c.Title)
+	titleText := material.Caption(th, c.Title)
+	titleText.TextSize = unit.Sp(10)
+	titleText.MaxLines = 1
 	if isFocused {
 		titleText.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 	} else {
-		titleText.Color = color.NRGBA{R: 160, G: 170, B: 185, A: 255}
+		titleText.Color = color.NRGBA{R: 140, G: 150, B: 170, A: 255}
 	}
 	titleText.Layout(titleGtx)
 	titleOffset.Pop()
@@ -583,20 +619,20 @@ func (cv *CatalogView) renderLoading(gtx layout.Context, th *material.Theme) lay
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				title := material.H5(th, "📺 Comic Reader TV")
+				title := material.H5(th, "Comic Reader TV")
 				title.Color = color.NRGBA{R: 0, G: 229, B: 255, A: 255}
 				return title.Layout(gtx)
 			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(18)}.Layout),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(14)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				lbl := material.Body1(th, "Memuat Katalog Komik...")
-				lbl.Color = color.NRGBA{R: 240, G: 240, B: 240, A: 255}
+				lbl.Color = color.NRGBA{R: 230, G: 230, B: 240, A: 255}
 				return lbl.Layout(gtx)
 			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				sub := material.Caption(th, fmt.Sprintf("Menghubungkan ke %s", cv.ServerURL))
-				sub.Color = color.NRGBA{R: 140, G: 150, B: 170, A: 255}
+				sub.Color = color.NRGBA{R: 130, G: 140, B: 160, A: 255}
 				return sub.Layout(gtx)
 			}),
 		)
@@ -610,20 +646,20 @@ func (cv *CatalogView) renderError(gtx layout.Context, th *material.Theme) layou
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				errTitle := material.H5(th, "⚠️ Gagal Memuat Katalog")
+				errTitle := material.H5(th, "Gagal Memuat Katalog")
 				errTitle.Color = color.NRGBA{R: 255, G: 82, B: 82, A: 255}
 				return errTitle.Layout(gtx)
 			}),
 			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				errMsg := material.Body1(th, cv.ErrorMessage)
-				errMsg.Color = color.NRGBA{R: 220, G: 220, B: 220, A: 255}
+				errMsg.Color = color.NRGBA{R: 210, G: 210, B: 220, A: 255}
 				return errMsg.Layout(gtx)
 			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(20)}.Layout),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(18)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				btn := material.Button(th, &cv.retryBtn, "Coba Lagi (Tekan OK)")
-				btn.Background = color.NRGBA{R: 0, G: 150, B: 255, A: 255}
+				btn.Background = color.NRGBA{R: 0, G: 140, B: 235, A: 255}
 				return btn.Layout(gtx)
 			}),
 		)
@@ -637,14 +673,14 @@ func (cv *CatalogView) renderEmpty(gtx layout.Context, th *material.Theme) layou
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Body1(th, "Belum ada komik di katalog. Masukkan komik melalui web admin server.")
-				lbl.Color = color.NRGBA{R: 200, G: 200, B: 200, A: 255}
+				lbl := material.Body1(th, "Belum ada komik. Masukkan komik melalui web admin server.")
+				lbl.Color = color.NRGBA{R: 190, G: 195, B: 210, A: 255}
 				return lbl.Layout(gtx)
 			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(14)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				btn := material.Button(th, &cv.retryBtn, "Muat Ulang (Tekan OK)")
-				btn.Background = color.NRGBA{R: 0, G: 150, B: 255, A: 255}
+				btn.Background = color.NRGBA{R: 0, G: 140, B: 235, A: 255}
 				return btn.Layout(gtx)
 			}),
 		)

@@ -56,7 +56,7 @@ type TVApp struct {
 	window       *app.Window
 }
 
-const CurrentAppVersion = "v1.0.17"
+const CurrentAppVersion = "v1.0.18"
 
 var mainTag = new(int)
 
@@ -224,24 +224,18 @@ func (tvApp *TVApp) handleRemoteKey(rKey ui.RemoteKey, gtx layout.Context) {
 	screenWidth := float32(gtx.Constraints.Max.X)
 	screenHeight := float32(gtx.Constraints.Max.Y)
 
-	// Tangani tombol KELUAR (Back Button)
-	if rKey == ui.KeyBack {
-		if tvApp.state == StateReader {
-			// Saat membaca, tombol Back kembali ke katalog
-			tvApp.state = StateCatalog
-			return
-		}
-		if tvApp.state == StateCatalog {
+	if tvApp.state == StateCatalog {
+		if rKey == ui.KeyBack {
 			// Saat di katalog utama, tombol Back keluar dari aplikasi
 			tvApp.window.Perform(system.ActionMinimize)
 			os.Exit(0)
 			return
 		}
-	}
-
-	if tvApp.state == StateCatalog {
 		tvApp.catalogView.HandleKey(rKey)
 	} else if tvApp.state == StateReader && tvApp.readerView != nil {
+		// PENTING: Serahkan semua tombol termasuk KeyBack ke ReaderView!
+		// ReaderView akan memeriksa: Loupe aktif -> matikan Loupe (tetap di komik);
+		// HUD aktif -> tutup HUD (tetap di komik); jika keduanya tidak aktif -> OnBack() ke katalog
 		tvApp.readerView.HandleKey(rKey, screenWidth, screenHeight)
 	}
 }
