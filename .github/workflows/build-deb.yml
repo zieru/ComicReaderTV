@@ -13,11 +13,23 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish langsung ke GitHub Releases?'
+        required: true
+        type: boolean
+        default: true
+      release_tag:
+        description: 'Nama Tag Release (misal: v1.0.9)'
+        required: true
+        default: 'v1.0.9'
 
 jobs:
   build-server-deb:
     name: Build Server Deb (Linux x64)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -58,10 +70,12 @@ jobs:
           path: |
             comic-reader-server_*.deb
 
-      - name: Publish to GitHub Release (If Tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: ${{ github.event.inputs.release_tag || github.ref_name }}
           files: comic-reader-server_*.deb
           draft: false
           prerelease: false
