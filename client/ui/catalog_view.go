@@ -18,6 +18,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
+	"gioui.org/widget"
 	"gioui.org/widget/material"
 
 	"comic_reader/pkg/model"
@@ -32,6 +33,9 @@ type CatalogView struct {
 	ErrorMessage string
 	OnSelect     func(comic model.Comic)
 	Invalidate   func()
+
+	clicks   []widget.Clickable
+	retryBtn widget.Clickable
 
 	coversMu sync.RWMutex
 	covers   map[string]paint.ImageOp
@@ -196,6 +200,9 @@ func (cv *CatalogView) Layout(gtx layout.Context, th *material.Theme) layout.Dim
 	}
 
 	if cv.ErrorMessage != "" {
+		if cv.retryBtn.Clicked(gtx) {
+			cv.FetchCatalog()
+		}
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -211,15 +218,18 @@ func (cv *CatalogView) Layout(gtx layout.Context, th *material.Theme) layout.Dim
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(24)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					hint := material.Body2(th, "Tekan tombol [OK / Enter] pada remote TV untuk mencoba lagi")
-					hint.Color = color.NRGBA{R: 76, G: 175, B: 80, A: 255}
-					return hint.Layout(gtx)
+					btn := material.Button(th, &cv.retryBtn, "Coba Lagi (Tekan OK)")
+					btn.Background = color.NRGBA{R: 76, G: 175, B: 80, A: 255}
+					return btn.Layout(gtx)
 				}),
 			)
 		})
 	}
 
 	if len(cv.Comics) == 0 {
+		if cv.retryBtn.Clicked(gtx) {
+			cv.FetchCatalog()
+		}
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -229,12 +239,25 @@ func (cv *CatalogView) Layout(gtx layout.Context, th *material.Theme) layout.Dim
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					hint := material.Body2(th, "Tekan tombol [OK / Enter] untuk memuat ulang")
-					hint.Color = color.NRGBA{R: 76, G: 175, B: 80, A: 255}
-					return hint.Layout(gtx)
+					btn := material.Button(th, &cv.retryBtn, "Muat Ulang (Tekan OK)")
+					btn.Background = color.NRGBA{R: 76, G: 175, B: 80, A: 255}
+					return btn.Layout(gtx)
 				}),
 			)
 		})
+	}
+
+	// Pastikan array clickable sesuai jumlah komik
+	if len(cv.clicks) < len(cv.Comics) {
+		cv.clicks = make([]widget.Clickable, len(cv.Comics))
+	}
+	for i, c := range cv.Comics {
+		if cv.clicks[i].Clicked(gtx) {
+			cv.FocusedIndex = i
+			if cv.OnSelect != nil {
+				cv.OnSelect(c)
+			}
+		}
 	}
 
 	// Hitung ukuran item grid berdasarkan lebar layar TV
@@ -256,7 +279,7 @@ func (cv *CatalogView) Layout(gtx layout.Context, th *material.Theme) layout.Dim
 			isFocused := (i == cv.FocusedIndex)
 
 			// Render kartu komik
-			cv.renderComicCard(gtx, th, c, x, y, cardWidth, cardHeight, isFocused)
+			cv.renderComicCard(gtx, th, c, i, x, y, cardWidth, cardHeight, isFocused)
 		}
 
 		// Render Header Title di TV
@@ -268,7 +291,7 @@ func (cv *CatalogView) Layout(gtx layout.Context, th *material.Theme) layout.Dim
 	})
 }
 
-func (cv *CatalogView) renderComicCard(gtx layout.Context, th *material.Theme, c model.Comic, x, y, w, h int, isFocused bool) {
+func (cv *CatalogView) renderComicCard(gtx layout.Context, th *material.Theme, c model.Comic, idx, x, y, w, h int, isFocused bool) {
 	scale := float32(1.0)
 	if isFocused {
 		scale = 1.06 // Efek pop-up membesar saat disorot remote TV
@@ -279,55 +302,67 @@ func (cv *CatalogView) renderComicCard(gtx layout.Context, th *material.Theme, c
 	xScaled := x - (wScaled-w)/2
 	yScaled := y - (hScaled-h)/2
 
-	cardRect := image.Rect(xScaled, yScaled, xScaled+wScaled, yScaled+hScaled)
+	cardOffset := op.Offset(image.Pt(xScaled, yScaled)).Push(gtx.Ops)
+	cardGtx := gtx
+	cardGtx.Constraints.Min = image.Pt(wScaled, hScaled)
+	cardGtx.Constraints.Max = image.Pt(wScaled, hScaled)
 
-	// Gambar Border Glow jika fokus
-	if isFocused {
-		glowBorder := image.Rect(cardRect.Min.X-4, cardRect.Min.Y-4, cardRect.Max.X+4, cardRect.Max.Y+4)
-		clipArea := clip.RRect{Rect: glowBorder, SE: 12, SW: 12, NW: 12, NE: 12}.Push(gtx.Ops)
-		paint.ColorOp{Color: color.NRGBA{R: 0, G: 220, B: 255, A: 255}}.Add(gtx.Ops)
-		paint.PaintOp{}.Add(gtx.Ops)
-		clipArea.Pop()
-	}
-
-	// Body Kartu Komik (Background)
-	clipCard := clip.RRect{Rect: cardRect, SE: 8, SW: 8, NW: 8, NE: 8}.Push(gtx.Ops)
-	paint.ColorOp{Color: color.NRGBA{R: 35, G: 35, B: 35, A: 255}}.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
-
-	// Gambar Cover jika sudah selesai diunduh
-	cv.coversMu.RLock()
-	imgOp, hasCover := cv.covers[c.ID]
-	cv.coversMu.RUnlock()
-
-	if hasCover {
-		imgSize := imgOp.Size()
-		if imgSize.X > 0 && imgSize.Y > 0 {
-			scaleX := float32(wScaled) / float32(imgSize.X)
-			scaleY := float32(hScaled) / float32(imgSize.Y)
-
-			macro := op.Record(gtx.Ops)
-			trans := f32.Affine2D{}.
-				Offset(f32.Pt(float32(xScaled), float32(yScaled))).
-				Scale(f32.Pt(0, 0), f32.Pt(scaleX, scaleY))
-			op.Affine(trans).Add(gtx.Ops)
-			imgOp.Add(gtx.Ops)
+	renderContent := func(gtx layout.Context) layout.Dimensions {
+		// Gambar Border Glow jika fokus
+		if isFocused {
+			glowBorder := image.Rect(-4, -4, wScaled+4, hScaled+4)
+			clipArea := clip.RRect{Rect: glowBorder, SE: 12, SW: 12, NW: 12, NE: 12}.Push(gtx.Ops)
+			paint.ColorOp{Color: color.NRGBA{R: 0, G: 220, B: 255, A: 255}}.Add(gtx.Ops)
 			paint.PaintOp{}.Add(gtx.Ops)
-			macro.Stop().Add(gtx.Ops)
+			clipArea.Pop()
 		}
-	} else {
-		// Placeholder saat cover sedang diunduh
-		subText := material.Caption(th, "📖 Memuat...")
-		subText.Color = color.NRGBA{R: 120, G: 120, B: 120, A: 255}
-		titleMacro := op.Record(gtx.Ops)
-		op.Offset(image.Pt(xScaled+12, yScaled+hScaled/2-10)).Add(gtx.Ops)
-		gtxSub := gtx
-		gtxSub.Constraints.Max.X = wScaled - 24
-		subText.Layout(gtxSub)
-		titleMacro.Stop().Add(gtx.Ops)
+
+		// Body Kartu Komik (Background)
+		innerRect := image.Rect(0, 0, wScaled, hScaled)
+		clipCard := clip.RRect{Rect: innerRect, SE: 8, SW: 8, NW: 8, NE: 8}.Push(gtx.Ops)
+		paint.ColorOp{Color: color.NRGBA{R: 35, G: 35, B: 35, A: 255}}.Add(gtx.Ops)
+		paint.PaintOp{}.Add(gtx.Ops)
+
+		// Gambar Cover jika sudah selesai diunduh
+		cv.coversMu.RLock()
+		imgOp, hasCover := cv.covers[c.ID]
+		cv.coversMu.RUnlock()
+
+		if hasCover {
+			imgSize := imgOp.Size()
+			if imgSize.X > 0 && imgSize.Y > 0 {
+				scaleX := float32(wScaled) / float32(imgSize.X)
+				scaleY := float32(hScaled) / float32(imgSize.Y)
+
+				macro := op.Record(gtx.Ops)
+				trans := f32.Affine2D{}.Scale(f32.Pt(0, 0), f32.Pt(scaleX, scaleY))
+				op.Affine(trans).Add(gtx.Ops)
+				imgOp.Add(gtx.Ops)
+				paint.PaintOp{}.Add(gtx.Ops)
+				macro.Stop().Add(gtx.Ops)
+			}
+		} else {
+			// Placeholder saat cover sedang diunduh
+			subText := material.Caption(th, "📖 Memuat...")
+			subText.Color = color.NRGBA{R: 120, G: 120, B: 120, A: 255}
+			titleMacro := op.Record(gtx.Ops)
+			op.Offset(image.Pt(12, hScaled/2-10)).Add(gtx.Ops)
+			gtxSub := gtx
+			gtxSub.Constraints.Max.X = wScaled - 24
+			subText.Layout(gtxSub)
+			titleMacro.Stop().Add(gtx.Ops)
+		}
+
+		clipCard.Pop()
+		return layout.Dimensions{Size: image.Pt(wScaled, hScaled)}
 	}
 
-	clipCard.Pop()
+	if idx < len(cv.clicks) {
+		cv.clicks[idx].Layout(cardGtx, renderContent)
+	} else {
+		renderContent(cardGtx)
+	}
+	cardOffset.Pop()
 
 	// Label Judul di bawah kartu
 	titleMacro := op.Record(gtx.Ops)

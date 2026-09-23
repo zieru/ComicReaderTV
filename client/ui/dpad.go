@@ -34,11 +34,11 @@ func MapKeyEvent(e key.Event) RemoteKey {
 		return KeyLeft
 	case key.NameRightArrow:
 		return KeyRight
-	case key.NameReturn, key.NameEnter, "DpadCenter", "Space":
+	case key.NameReturn, key.NameEnter, key.NameSpace, "DpadCenter", "Select", "ButtonA", "Center":
 		return KeySelect
-	case key.NameEscape, "Back":
+	case key.NameEscape, key.NameBack, "ButtonB":
 		return KeyBack
-	case "Menu", "M":
+	case "Menu", "M", "Context":
 		return KeyMenu
 	case "Z", "MediaPlayPause", "MediaPlay":
 		return KeyZoom

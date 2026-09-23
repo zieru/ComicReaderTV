@@ -13,6 +13,8 @@ import (
 	"gioui.org/app"
 	"gioui.org/io/event"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
+	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -54,7 +56,9 @@ type TVApp struct {
 	window       *app.Window
 }
 
-const CurrentAppVersion = "v1.0.12"
+const CurrentAppVersion = "v1.0.13"
+
+var mainTag = new(int)
 
 func main() {
 	defaultServer := "http://ca.tsel.my.id:8080"
@@ -107,6 +111,47 @@ func run(w *app.Window, serverURL string) error {
 
 	var ops op.Ops
 
+	// Filter lengkap untuk menangkap semua event keyboard/remote & pointer/touch TV
+	// PENTING: Pada Android TV, tombol arah (Up/Down/Left/Right) dan Back diperlakukan
+	// sebagai SystemEvent oleh Gio. Filter catch-all (Name: "") secara sengaja TIDAK
+	// menangkap SystemEvent, sehingga setiap tombol D-pad HARUS didaftarkan secara eksplisit!
+	filters := []event.Filter{
+		key.Filter{Focus: mainTag, Name: key.NameUpArrow},
+		key.Filter{Focus: mainTag, Name: key.NameDownArrow},
+		key.Filter{Focus: mainTag, Name: key.NameLeftArrow},
+		key.Filter{Focus: mainTag, Name: key.NameRightArrow},
+		key.Filter{Focus: mainTag, Name: key.NameReturn},
+		key.Filter{Focus: mainTag, Name: key.NameEnter},
+		key.Filter{Focus: mainTag, Name: key.NameBack},
+		key.Filter{Focus: mainTag, Name: key.NameEscape},
+		key.Filter{Focus: mainTag, Name: key.NameSpace},
+		key.Filter{Focus: mainTag, Name: "DpadCenter"},
+		key.Filter{Focus: mainTag, Name: "Select"},
+		key.Filter{Focus: mainTag, Name: "Back"},
+		key.Filter{Focus: mainTag, Name: "Menu"},
+		key.Filter{Focus: mainTag, Name: ""},
+		// Global filters
+		key.Filter{Name: key.NameUpArrow},
+		key.Filter{Name: key.NameDownArrow},
+		key.Filter{Name: key.NameLeftArrow},
+		key.Filter{Name: key.NameRightArrow},
+		key.Filter{Name: key.NameReturn},
+		key.Filter{Name: key.NameEnter},
+		key.Filter{Name: key.NameBack},
+		key.Filter{Name: key.NameEscape},
+		key.Filter{Name: key.NameSpace},
+		key.Filter{Name: "DpadCenter"},
+		key.Filter{Name: "Select"},
+		key.Filter{Name: "Back"},
+		key.Filter{Name: "Menu"},
+		key.Filter{Name: ""},
+		// Pointer filter: menangkap AKEYCODE_DPAD_CENTER dan click TV
+		pointer.Filter{
+			Target: mainTag,
+			Kinds:  pointer.Press | pointer.Release,
+		},
+	}
+
 	for {
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
@@ -115,26 +160,33 @@ func run(w *app.Window, serverURL string) error {
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
 
-			// Registrasi penerimaan event Keyboard / Remote TV
-			event.Op(gtx.Ops, "main_tag")
+			// Daftarkan area input mencakup seluruh layar jendela TV
+			inputArea := clip.Rect(image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)).Push(gtx.Ops)
+			event.Op(gtx.Ops, mainTag)
+			inputArea.Pop()
 
-			// Handle Hardware Key Events (Remote TV)
+			// Pastikan keyboard focus selalu aktif pada mainTag
+			if !gtx.Focused(mainTag) {
+				gtx.Execute(key.FocusCmd{Tag: mainTag})
+			}
+
+			// Handle Hardware Key Events & Pointer Events (Remote TV)
 			for {
-				ev, ok := gtx.Event(key.Filter{Name: ""})
+				ev, ok := gtx.Event(filters...)
 				if !ok {
 					break
 				}
-				if ke, ok := ev.(key.Event); ok {
-					rKey := ui.MapKeyEvent(ke)
+				switch eventVal := ev.(type) {
+				case key.Event:
+					rKey := ui.MapKeyEvent(eventVal)
 					if rKey != ui.KeyNone {
-						screenWidth := float32(gtx.Constraints.Max.X)
-						screenHeight := float32(gtx.Constraints.Max.Y)
-
-						if tvApp.state == StateCatalog {
-							tvApp.catalogView.HandleKey(rKey)
-						} else if tvApp.state == StateReader && tvApp.readerView != nil {
-							tvApp.readerView.HandleKey(rKey, screenWidth, screenHeight)
-						}
+						tvApp.handleRemoteKey(rKey, gtx)
+						w.Invalidate()
+					}
+				case pointer.Event:
+					if eventVal.Kind == pointer.Release {
+						// Pemicuan klik / OK dari DpadCenter TV
+						tvApp.handleRemoteKey(ui.KeySelect, gtx)
 						w.Invalidate()
 					}
 				}
@@ -152,6 +204,32 @@ func run(w *app.Window, serverURL string) error {
 
 			e.Frame(gtx.Ops)
 		}
+	}
+}
+
+func (tvApp *TVApp) handleRemoteKey(rKey ui.RemoteKey, gtx layout.Context) {
+	screenWidth := float32(gtx.Constraints.Max.X)
+	screenHeight := float32(gtx.Constraints.Max.Y)
+
+	// Tangani tombol KELUAR (Back Button)
+	if rKey == ui.KeyBack {
+		if tvApp.state == StateReader {
+			// Saat membaca, tombol Back kembali ke katalog
+			tvApp.state = StateCatalog
+			return
+		}
+		if tvApp.state == StateCatalog {
+			// Saat di katalog utama, tombol Back keluar dari aplikasi
+			tvApp.window.Perform(system.ActionMinimize)
+			os.Exit(0)
+			return
+		}
+	}
+
+	if tvApp.state == StateCatalog {
+		tvApp.catalogView.HandleKey(rKey)
+	} else if tvApp.state == StateReader && tvApp.readerView != nil {
+		tvApp.readerView.HandleKey(rKey, screenWidth, screenHeight)
 	}
 }
 
