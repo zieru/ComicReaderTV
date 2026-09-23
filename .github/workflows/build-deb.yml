@@ -1,0 +1,70 @@
+name: Build Server Deb (Linux x64)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'server/**'
+      - 'pkg/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/build-deb.yml'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-server-deb:
+    name: Build Server Deb (Linux x64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Cache Go Build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: go-server-build-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-server-build-${{ runner.os }}-
+
+      - name: Build Server Linux x64
+        run: |
+          mkdir -p server/build/package/usr/bin
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o server/build/package/usr/bin/comic-reader-server ./server/cmd/server
+          chmod +x server/build/package/usr/bin/comic-reader-server
+          chmod +x server/build/package/usr/bin/comic-reader-update
+
+      - name: Package .deb (Debian 11+ Compatible via Gzip)
+        run: |
+          mkdir -p server/build/package/var/lib/comic-reader
+          PKG_VERSION=$(grep '^Version:' server/build/package/DEBIAN/control | awk '{print $2}')
+          dpkg-deb -Zgzip --build --root-owner-group server/build/package "comic-reader-server_${PKG_VERSION}_amd64.deb"
+          cp "comic-reader-server_${PKG_VERSION}_amd64.deb" comic-reader-server_amd64.deb
+
+      - name: Upload Server Deb Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: comic-reader-server-deb
+          path: |
+            comic-reader-server_*.deb
+
+      - name: Publish to GitHub Release (If Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: comic-reader-server_*.deb
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

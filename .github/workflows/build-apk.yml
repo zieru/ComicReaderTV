@@ -1,0 +1,186 @@
+name: Build Android TV APK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'client/**'
+      - 'pkg/**'
+      - 'tools/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/build-apk.yml'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Arsitektur target CPU'
+        required: true
+        default: 'arm,arm64'
+        type: choice
+        options:
+          - 'arm,arm64'
+          - 'arm'
+          - 'arm64'
+
+jobs:
+  build-apk:
+    name: Build Android TV APK
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Cache Android NDK & SDK Components
+        id: cache-android
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/ndk/25.2.9519653
+            /usr/local/lib/android/sdk/platforms/android-33
+            /usr/local/lib/android/sdk/build-tools/33.0.2
+          key: android-sdk-ndk-25.2.9519653-v2
+
+      - name: Setup Android NDK & Environment
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/build-tools/33.0.2" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+          
+          if [ "${{ steps.cache-android.outputs.cache-hit }}" != "true" ]; then
+            echo "Installing Android NDK & SDK components..."
+            yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+            $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653" "build-tools;33.0.2" "platforms;android-33"
+          else
+            echo "Android NDK & SDK components restored from cache."
+          fi
+
+      - name: Cache Go Build & Gio Tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/bin/gogio
+          key: go-build-gio-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-build-gio-${{ runner.os }}-
+
+      - name: Install Gio Tools (gogio)
+        run: |
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+          if ! command -v gogio &> /dev/null && [ ! -f ~/go/bin/gogio ]; then
+            echo "Installing gogio..."
+            go install gioui.org/cmd/gogio@latest
+          else
+            echo "gogio restored from cache."
+          fi
+
+      - name: Download Apktool
+        run: |
+          curl -sL https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar -o apktool.jar
+          chmod +x apktool.jar
+
+      - name: Build Android TV APK with Gogio
+        run: |
+          TARGET_ARCH="${{ github.event.inputs.arch || 'arm,arm64' }}"
+          echo "Compiling ComicReaderTV for architecture: $TARGET_ARCH"
+          # Kompilasi aplikasi client menjadi APK
+          # -arch: arm (armeabi-v7a) dan arm64 (arm64-v8a) agar kompatibel dengan TV 32-bit dan 64-bit
+          # -name: ComicReaderTV (bukan 'Tv')
+          # -icon: menyertakan icon aplikasi resmi
+          gogio -target android \
+            -arch "$TARGET_ARCH" \
+            -version 1.0.0.1 \
+            -minsdk 21 \
+            -targetsdk 33 \
+            -name "ComicReaderTV" \
+            -appid com.comicreader.tv \
+            -icon ./client/cmd/tv/appicon.png \
+            -o raw_comic_reader_tv.apk ./client/cmd/tv
+
+      - name: Patch Android TV Manifest (Leanback & No Touchscreen Requirement)
+        run: |
+          echo "Decompiling APK to patch Android TV manifest..."
+          java -jar apktool.jar d -f raw_comic_reader_tv.apk -o apk_unpacked
+
+          echo "Applying Android TV compatibility patch..."
+          python3 tools/patch_tv_manifest.py apk_unpacked/AndroidManifest.xml
+
+          echo "Rebuilding APK..."
+          java -jar apktool.jar b apk_unpacked -o unaligned_comic_reader_tv.apk
+
+          echo "Zipalign 4-byte boundary..."
+          $ANDROID_HOME/build-tools/33.0.2/zipalign -p -f 4 unaligned_comic_reader_tv.apk ComicReaderTV.apk
+
+      - name: Sign APK (Apksigner Scheme v1, v2, v3)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Signing with provided GitHub Secrets Keystore..."
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            $ANDROID_HOME/build-tools/33.0.2/apksigner sign \
+              --ks release.keystore \
+              --ks-pass "pass:$KEYSTORE_PASSWORD" \
+              --ks-key-alias "$KEY_ALIAS" \
+              --key-pass "pass:$KEY_PASSWORD" \
+              ComicReaderTV.apk
+          else
+            echo "Generating consistent release keystore..."
+            keytool -genkey -v -keystore release.keystore \
+              -storepass comicreadertv -alias comicreadertv -keypass comicreadertv \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=ComicReaderTV, OU=TV, O=ComicReader, L=Jakarta, S=DKI, C=ID"
+            $ANDROID_HOME/build-tools/33.0.2/apksigner sign \
+              --ks release.keystore \
+              --ks-pass pass:comicreadertv \
+              --ks-key-alias comicreadertv \
+              --key-pass pass:comicreadertv \
+              ComicReaderTV.apk
+          fi
+
+          echo "Verifying APK signature..."
+          $ANDROID_HOME/build-tools/33.0.2/apksigner verify -v ComicReaderTV.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: comic-reader-tv-apk
+          path: ComicReaderTV.apk
+
+      - name: Publish to GitHub Release (If Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ComicReaderTV.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
