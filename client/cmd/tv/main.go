@@ -35,7 +35,11 @@ type TVApp struct {
 }
 
 func main() {
-	serverURL := flag.String("server", "http://127.0.0.1:8080", "Alamat server katalog")
+	defaultServer := "http://ca.tsel.my.id:8080"
+	if envURL := os.Getenv("COMIC_SERVER_URL"); envURL != "" {
+		defaultServer = envURL
+	}
+	serverURL := flag.String("server", defaultServer, "Alamat server katalog")
 	flag.Parse()
 
 	go func() {
@@ -48,7 +52,7 @@ func main() {
 		)
 
 		// Inisialisasi Auto Updater dengan repo zieru/ComicReaderTV
-		appUpdater := updater.NewUpdater("zieru", "ComicReaderTV", "v1.0.0")
+		appUpdater := updater.NewUpdater("zieru", "ComicReaderTV", "v1.0.10")
 		go func() {
 			if rel, hasUpdate, err := appUpdater.CheckUpdate(); err == nil && hasUpdate {
 				log.Printf("Pembaruan baru tersedia: %s (%s)", rel.Name, rel.TagName)

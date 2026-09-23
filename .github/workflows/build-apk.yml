@@ -30,9 +30,9 @@ on:
         type: boolean
         default: true
       release_tag:
-        description: 'Nama Tag Release (misal: v1.0.9)'
+        description: 'Nama Tag Release (misal: v1.0.10)'
         required: true
-        default: 'v1.0.9'
+        default: 'v1.0.10'
 
 jobs:
   build-apk:
@@ -121,7 +121,7 @@ jobs:
           echo "Compiling ComicReaderTV for architecture: $TARGET_ARCH"
           gogio -target android \
             -arch "$TARGET_ARCH" \
-            -version 1.0.0.1 \
+            -version 1.0.10.1 \
             -minsdk 21 \
             -targetsdk 33 \
             -name "ComicReaderTV" \
