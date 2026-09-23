@@ -40,7 +40,7 @@ func MapKeyEvent(e key.Event) RemoteKey {
 		return KeyBack
 	case "Menu", "M", "Context":
 		return KeyMenu
-	case "Z", "MediaPlayPause", "MediaPlay":
+	case "Z", "z", "MediaPlayPause", "MediaPlay", "MediaPause", "Play", "ButtonX", "ButtonY", "Yellow", "Blue":
 		return KeyZoom
 	default:
 		return KeyNone

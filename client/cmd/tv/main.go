@@ -56,7 +56,7 @@ type TVApp struct {
 	window       *app.Window
 }
 
-const CurrentAppVersion = "v1.0.14"
+const CurrentAppVersion = "v1.0.15"
 
 var mainTag = new(int)
 
@@ -132,6 +132,10 @@ func run(w *app.Window, serverURL string) error {
 		key.Filter{Focus: mainTag, Name: "Select"},
 		key.Filter{Focus: mainTag, Name: "Back"},
 		key.Filter{Focus: mainTag, Name: "Menu"},
+		key.Filter{Focus: mainTag, Name: "Z"},
+		key.Filter{Focus: mainTag, Name: "z"},
+		key.Filter{Focus: mainTag, Name: "MediaPlayPause"},
+		key.Filter{Focus: mainTag, Name: "MediaPlay"},
 		key.Filter{Focus: mainTag, Name: ""},
 		// Global filters
 		key.Filter{Name: key.NameUpArrow},
@@ -147,6 +151,10 @@ func run(w *app.Window, serverURL string) error {
 		key.Filter{Name: "Select"},
 		key.Filter{Name: "Back"},
 		key.Filter{Name: "Menu"},
+		key.Filter{Name: "Z"},
+		key.Filter{Name: "z"},
+		key.Filter{Name: "MediaPlayPause"},
+		key.Filter{Name: "MediaPlay"},
 		key.Filter{Name: ""},
 		// Pointer filter: menangkap AKEYCODE_DPAD_CENTER dan click TV
 		pointer.Filter{
