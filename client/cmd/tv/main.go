@@ -56,7 +56,7 @@ type TVApp struct {
 	window       *app.Window
 }
 
-const CurrentAppVersion = "v1.0.15"
+const CurrentAppVersion = "v1.0.17"
 
 var mainTag = new(int)
 

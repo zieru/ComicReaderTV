@@ -106,10 +106,12 @@ func (rel *GitHubRelease) FindAPKAsset() *Asset {
 // GetWritableUpdateDir mencari folder lokal yang bisa ditulis untuk menyimpan file update
 func GetWritableUpdateDir() string {
 	candidates := []string{
+		"/data/data/com.comicreader.tv/cache",
+		"/data/data/com.comicreader.tv/files",
+		filepath.Join(os.TempDir(), "updates"),
+		os.TempDir(),
 		"/sdcard/Download",
 		"/storage/emulated/0/Download",
-		filepath.Join(os.TempDir(), "updates"),
-		"/data/data/com.comicreader.tv/cache",
 	}
 	for _, dir := range candidates {
 		if err := os.MkdirAll(dir, 0755); err == nil {
@@ -146,6 +148,7 @@ func (u *Updater) DownloadAndInstallAPK(downloadURL, destDir string, onProgress 
 	}
 
 	apkPath := filepath.Join(destDir, "ComicReaderTV.apk")
+	_ = os.Remove(apkPath) // Hapus file lama jika ada
 	outFile, err := os.Create(apkPath)
 	if err != nil {
 		return "", fmt.Errorf("gagal membuat file update apk: %w", err)

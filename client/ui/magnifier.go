@@ -95,50 +95,45 @@ func (l *FloatingLoupe) Layout(gtx layout.Context, th *material.Theme, imgOp pai
 	rrect := clip.UniformRRect(circleBounds, int(l.Radius))
 	clipArea := rrect.Push(gtx.Ops)
 
-	// Isi latar belakang lensa dengan warna gelap jika berada di tepi halaman
-	paint.ColorOp{Color: color.NRGBA{R: 15, G: 15, B: 20, A: 255}}.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
+	// Background dasar gelap jika lensa berada di luar batas komik
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 8, G: 10, B: 15, A: 255}, rrect.Op(gtx.Ops))
 
-	// 3. Terapkan transformasi zoom affine:
-	// Memetakan (imgTargetX, imgTargetY) agar berada tepat di titik pusat kursor l.Position
-	// dengan pengali skala total = pageScale * l.ZoomFactor
+	// 3. Terapkan transformasi zoom affine menggunakan f32.NewAffine2D:
+	// Memetakan koordinat (imgTargetX, imgTargetY) agar berada tepat di kursor l.Position
+	// dengan skala total magScale = pageScale * l.ZoomFactor
 	magScale := pageScale * l.ZoomFactor
-	zoomTransform := f32.Affine2D{}.
-		Offset(l.Position).
-		Scale(f32.Pt(0, 0), f32.Pt(magScale, magScale)).
-		Offset(f32.Pt(-imgTargetX, -imgTargetY))
+	ox := l.Position.X - (imgTargetX * magScale)
+	oy := l.Position.Y - (imgTargetY * magScale)
+
+	zoomTransform := f32.NewAffine2D(
+		magScale, 0, ox,
+		0, magScale, oy,
+	)
 
 	transOp := op.Affine(zoomTransform).Push(gtx.Ops)
 	imgOp.Add(gtx.Ops)
 	paint.PaintOp{}.Add(gtx.Ops)
 	transOp.Pop()
 
-	// 4. Efek Vignette / Glare halus di tepi dalam lensa
-	vignetteColor := color.NRGBA{R: 0, G: 220, B: 255, A: 25}
-	paint.ColorOp{Color: vignetteColor}.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
-
 	clipArea.Pop()
 
-	// 5. Gambar Bezel / Frame Ring Lensa Kaca Pembesar
-	// Ring Luar Neon Cyan Glow
+	// 4. Gambar Bezel / Frame Ring Lensa Kaca Pembesar
 	drawHollowRing(gtx, circleBounds, int(l.Radius), 4, color.NRGBA{R: 0, G: 229, B: 255, A: 255})
-	// Ring Dalam Metalik Halus
 	innerBounds := image.Rect(
 		int(l.Position.X-l.Radius+3),
 		int(l.Position.Y-l.Radius+3),
 		int(l.Position.X+l.Radius-3),
 		int(l.Position.Y+l.Radius-3),
 	)
-	drawHollowRing(gtx, innerBounds, int(l.Radius-3), 2, color.NRGBA{R: 255, G: 255, B: 255, A: 120})
+	drawHollowRing(gtx, innerBounds, int(l.Radius-3), 1.5, color.NRGBA{R: 255, G: 255, B: 255, A: 120})
 
-	// 6. Gambar Crosshair Reticle halus di titik pusat lensa
+	// 5. Gambar Crosshair Reticle halus di titik pusat lensa
 	drawReticle(gtx, l.Position)
 
-	// 7. Render Badge Indikator Zoom di atas lensa
+	// 6. Render Badge Indikator Zoom di bawah atau atas lensa
 	drawZoomBadge(gtx, th, l.Position, l.Radius, l.ZoomFactor)
 
-	// 8. Render Bar Panduan Remote TV di bagian bawah layar
+	// 7. Render Bar Panduan Remote TV di bagian bawah layar
 	drawTVControlLegend(gtx, th, l.ZoomFactor)
 
 	macro := macroStack.Stop()
@@ -180,24 +175,22 @@ func drawReticle(gtx layout.Context, center f32.Point) {
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, clip.Rect(centerPt).Op())
 }
 
-// drawZoomBadge menampilkan badge floating pill zoom (misal: "🔍 2.8x") tepat di atas lensa
+// drawZoomBadge menampilkan badge floating pill zoom (misal: "🔍 2.8x") tepat di atas/bawah lensa
 func drawZoomBadge(gtx layout.Context, th *material.Theme, center f32.Point, radius float32, zoom float32) {
 	badgeW := 90
 	badgeH := 30
 	bx := int(center.X) - (badgeW / 2)
-	by := int(center.Y - radius - float32(badgeH) - 10)
-	if by < 10 {
-		by = int(center.Y + radius + 10)
+	by := int(center.Y + radius + 10)
+	if by > gtx.Constraints.Max.Y-50 {
+		by = int(center.Y - radius - float32(badgeH) - 10)
 	}
 
 	badgeRect := image.Rect(bx, by, bx+badgeW, by+badgeH)
 	rrect := clip.UniformRRect(badgeRect, 15)
 
-	// Latar belakang gelap dengan border cyan
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 18, G: 24, B: 38, A: 240}, rrect.Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 229, B: 255, A: 255}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 1.5}.Op())
 
-	// Label Teks Zoom
 	offset := op.Offset(image.Pt(bx+14, by+5)).Push(gtx.Ops)
 	lbl := material.Caption(th, fmt.Sprintf("🔍 %.1fx", zoom))
 	lbl.Color = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
@@ -215,11 +208,9 @@ func drawTVControlLegend(gtx layout.Context, th *material.Theme, currentZoom flo
 			bgRect := image.Rect(0, 0, pillW, pillH)
 			rrect := clip.UniformRRect(bgRect, 21)
 
-			// Background Glass Pill
 			paint.FillShape(gtx.Ops, color.NRGBA{R: 12, G: 16, B: 24, A: 235}, rrect.Op(gtx.Ops))
 			paint.FillShape(gtx.Ops, color.NRGBA{R: 0, G: 229, B: 255, A: 180}, clip.Stroke{Path: rrect.Path(gtx.Ops), Width: 1.5}.Op())
 
-			// Layout Teks Petunjuk
 			return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				guideText := fmt.Sprintf("🔍 LOUPE AKTIF  |  [D-PAD] Geser Lensa  |  [OK] Zoom (%.1fx)  |  [BACK] Selesai", currentZoom)
 				lbl := material.Body2(th, guideText)
