@@ -158,25 +158,7 @@ func (h *Handler) handleComics(w http.ResponseWriter, r *http.Request) {
 			sourceType = "gdrive_pdf"
 		}
 
-		// Download / cache PDF & hitung halaman di background atau sinkron
-		totalPages := 0
-		go func(cid, surl string) {
-			localPath, err := h.pdfEngine.EnsureLocalPDF(cid, surl)
-			if err != nil {
-				log.Printf("Gagal prefetch PDF %s: %v", cid, err)
-				return
-			}
-			count, err := h.pdfEngine.GetPageCount(localPath)
-			if err != nil {
-				log.Printf("Gagal hitung halaman %s: %v", cid, err)
-				return
-			}
-			if comic, ok := h.store.Get(cid); ok {
-				comic.TotalPages = count
-				h.store.Upsert(comic)
-			}
-		}(comicID, req.SourceURL)
-
+		// Download / cache PDF & hitung halaman di background
 		comic := model.Comic{
 			ID:          comicID,
 			Title:       req.Title,
@@ -184,13 +166,16 @@ func (h *Handler) handleComics(w http.ResponseWriter, r *http.Request) {
 			CoverURL:    req.CoverURL,
 			SourceType:  sourceType,
 			SourceURL:   req.SourceURL,
-			TotalPages:  totalPages,
+			TotalPages:  0,
+			Status:      "processing",
 		}
 
 		if err := h.store.Upsert(comic); err != nil {
 			http.Error(w, fmt.Sprintf("Gagal menyimpan komik: %v", err), http.StatusInternalServerError)
 			return
 		}
+
+		go h.prefetchComic(comicID, req.SourceURL)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -289,7 +274,56 @@ func (h *Handler) handleComicItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-resource: POST /api/comics/{id}/retry
+	if len(parts) >= 2 && parts[1] == "retry" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !h.checkAuth(r) {
+			http.Error(w, "Unauthorized: Silakan login terlebih dahulu via Telegram OTP", http.StatusUnauthorized)
+			return
+		}
+		comic.Status = "processing"
+		comic.ErrorMsg = ""
+		h.store.Upsert(comic)
+		go h.prefetchComic(comic.ID, comic.SourceURL)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(comic)
+		return
+	}
+
 	http.NotFound(w, r)
+}
+
+func (h *Handler) prefetchComic(cid, surl string) {
+	localPath, err := h.pdfEngine.EnsureLocalPDF(cid, surl)
+	if err != nil {
+		log.Printf("[prefetch] Gagal prefetch PDF %s: %v", cid, err)
+		if c, ok := h.store.Get(cid); ok {
+			c.Status = "error"
+			c.ErrorMsg = err.Error()
+			h.store.Upsert(c)
+		}
+		return
+	}
+	count, err := h.pdfEngine.GetPageCount(localPath)
+	if err != nil {
+		log.Printf("[prefetch] Gagal hitung halaman %s: %v", cid, err)
+		if c, ok := h.store.Get(cid); ok {
+			c.Status = "error"
+			c.ErrorMsg = fmt.Sprintf("Gagal membaca halaman PDF: %v", err)
+			h.store.Upsert(c)
+		}
+		return
+	}
+	if c, ok := h.store.Get(cid); ok {
+		c.TotalPages = count
+		c.Status = "ready"
+		c.ErrorMsg = ""
+		h.store.Upsert(c)
+		log.Printf("[prefetch] Berhasil memproses komik %s (%d halaman)", cid, count)
+	}
 }
 
 func (h *Handler) handleUploadComic(w http.ResponseWriter, r *http.Request) {
@@ -350,6 +384,13 @@ func (h *Handler) handleUploadComic(w http.ResponseWriter, r *http.Request) {
 		totalPages = 0
 	}
 
+	status := "ready"
+	errMsg := ""
+	if totalPages == 0 {
+		status = "error"
+		errMsg = "Gagal menghitung halaman file PDF yang diunggah"
+	}
+
 	comic := model.Comic{
 		ID:          comicID,
 		Title:       title,
@@ -358,6 +399,8 @@ func (h *Handler) handleUploadComic(w http.ResponseWriter, r *http.Request) {
 		SourceType:  "uploaded_pdf",
 		SourceURL:   fmt.Sprintf("local:%s", comicID),
 		TotalPages:  totalPages,
+		Status:      status,
+		ErrorMsg:    errMsg,
 	}
 
 	if err := h.store.Upsert(comic); err != nil {

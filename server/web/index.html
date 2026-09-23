@@ -113,6 +113,8 @@
     .badge { display: inline-block; padding: 2px 7px; font-size: 11px; border-radius: 4px; background: #0f172a; color: var(--accent-cyan); border: 1px solid #334155; margin-top: 6px; }
     .btn-delete { background: var(--accent-red); color: #fff; padding: 6px 10px; font-size: 12px; margin-top: 8px; width: auto; float: right; border-radius: 6px; }
     .btn-pdf { background: #334155; color: #cbd5e1; padding: 6px 10px; font-size: 12px; margin-top: 8px; width: auto; float: left; border-radius: 6px; text-decoration: none; display: inline-block; }
+    .btn-retry { background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 6px 10px; font-size: 12px; margin-top: 8px; width: auto; float: left; border-radius: 6px; cursor: pointer; transition: all 0.2s; font-weight: 600; margin-right: 6px; }
+    .btn-retry:hover { background: #0284c7; color: #fff; }
 
     /* Telegram OTP Auth Modal */
     .modal-backdrop {
@@ -162,7 +164,7 @@
   <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 14px; margin-bottom: 22px; flex-wrap: wrap; gap: 12px;">
     <div>
       <h1 style="display: inline-block;">📚 Comic Catalog Manager</h1>
-      <span id="versionBadge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan); padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 10px; font-weight: 600;">v1.0.6</span>
+      <span id="versionBadge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan); padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 10px; font-weight: 600;">v1.0.7</span>
       <span id="browserBadge" style="background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #4ade80; padding: 3px 10px; border-radius: 12px; font-size: 12px; margin-left: 6px; font-weight: 500;">Memeriksa Headless Scraper...</span>
     </div>
     <div style="display: flex; gap: 8px; align-items: center;">
@@ -476,11 +478,13 @@
     }
   }
 
+  window.__comicsData = [];
   let hasProcessingComics = false;
   async function loadComics() {
     try {
       const res = await fetch('/api/comics');
       const data = await res.json();
+      window.__comicsData = data || [];
       grid.innerHTML = '';
       if (!data || data.length === 0) {
         grid.innerHTML = '<p style="color: var(--text-muted); grid-column: 1 / -1;">Belum ada komik. Silakan tambahkan lewat form di atas!</p>';
@@ -494,10 +498,25 @@
         const isUploaded = c.source_type === 'uploaded_pdf';
         const badgeLabel = isUploaded ? '📁 PDF Upload' : (c.source_type === 'gdrive_pdf' ? '☁ GDrive' : '🔗 Direct');
         
-        let subText = c.total_pages ? `${c.total_pages} Halaman` : '<span style="color: #fbbf24; font-weight: 600;">⏳ Sedang Memproses / Scraper...</span>';
-        if (!c.total_pages) {
+        let subText = '';
+        let isError = c.status === 'error';
+        let isProcessing = c.status === 'processing';
+
+        if (isError) {
+          subText = `<div style="color: #f87171; font-weight: 600; font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; margin-top: 2px;" onclick="showComicError('${c.id}')" title="Klik untuk melihat detail error dan solusinya">
+            <span>❌ Gagal Scrape</span>
+            <span style="text-decoration: underline; color: #38bdf8; font-size: 11px;">[Detail]</span>
+          </div>`;
+        } else if (c.total_pages && c.total_pages > 0) {
+          subText = `<span style="color: #94a3b8; font-size: 12px;">${c.total_pages} Halaman</span>`;
+        } else {
+          // Status processing atau belum ada halaman
+          subText = '<span style="color: #fbbf24; font-weight: 600; font-size: 11px;">⏳ Sedang Memproses / Scraper...</span>';
           hasProcessingComics = true;
         }
+
+        const retryBtn = (isError || (!c.total_pages && !isProcessing)) ? 
+          `<button class="btn-retry" onclick="retryComic('${c.id}')" title="Coba proses ulang dokumen">🔄 Coba Lagi</button>` : '';
 
         card.innerHTML = `
           <img src="${c.cover_url || '/api/comics/' + c.id + '/page/1'}" onerror="this.src='https://via.placeholder.com/210x270?text=No+Cover'" alt="${c.title}">
@@ -506,22 +525,52 @@
             <div class="comic-sub">${subText}</div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
               <span class="badge">${badgeLabel}</span>
-              <a href="/api/comics/${c.id}/pdf" class="btn-pdf" target="_blank" title="Unduh File PDF">⬇ PDF</a>
+              ${c.total_pages > 0 ? `<a href="/api/comics/${c.id}/pdf" class="btn-pdf" target="_blank" title="Unduh File PDF">⬇ PDF</a>` : ''}
             </div>
-            <div style="clear: both; margin-top: 6px;">
-              <button class="btn-delete" onclick="deleteComic('${c.id}')">Hapus</button>
+            <div style="clear: both; margin-top: 6px; display: flex; justify-content: flex-end; align-items: center; gap: 6px;">
+              ${retryBtn}
+              <button class="btn-delete" onclick="deleteComic('${c.id}')" style="margin: 0;">Hapus</button>
             </div>
           </div>
         `;
         grid.appendChild(card);
       });
 
-      // Auto poll jika ada komik yang sedang di-scrape di background
+      // Auto poll HANYA jika ada komik yang sedang di-scrape di background
       if (hasProcessingComics) {
         setTimeout(loadComics, 6000);
       }
     } catch(err) {
       grid.innerHTML = '<p>Gagal memuat katalog: ' + err + '</p>';
+    }
+  }
+
+  function showComicError(id) {
+    const comic = (window.__comicsData || []).find(x => x.id === id);
+    if (!comic) return;
+    const msg = comic.error_msg || 'Proses unduh atau scraping dokumen mengalami kendala.';
+    alert('⚠️ Detail Kendala Pemrosesan Komik:\n\n' + msg + '\n\n💡 Solusi Alternatif Jika Terproteksi Pemilik Google Drive:\n1. Klik tombol "🔄 Coba Lagi" untuk mencoba ulang scraper headless di server.\n2. ATAU buka file Google Drive di tab browser Anda, lalu klik bookmarklet "⚡ Import GDrive PDF" atau Salin Kode Konsol di atas untuk mengimpor langsung dari browser Anda.');
+  }
+
+  async function retryComic(id) {
+    try {
+      const res = await fetch('/api/comics/' + id + '/retry', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (res.status === 401) {
+        alert('Aksi memerlukan otorisasi admin! Silakan verifikasi OTP Telegram.');
+        openOtpModal();
+        return;
+      }
+      if (!res.ok) {
+        const text = await res.text();
+        alert('Gagal retry: ' + text);
+        return;
+      }
+      loadComics();
+    } catch (e) {
+      alert('Gagal mengirim perintah retry: ' + e);
     }
   }
 

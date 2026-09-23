@@ -1,12 +1,15 @@
 package gscraper
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"image/jpeg"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -27,7 +30,7 @@ func BrowserPath() string {
 }
 
 // DownloadViewOnlyPDF membuka file Google Drive view-only menggunakan headless browser,
-// mengekstrak semua halaman dokumen, dan menyimpannya sebagai file PDF di outputPath.
+// mengekstrak semua halaman dokumen dari DOM canvas/img, dan menyimpannya sebagai file PDF di outputPath.
 func DownloadViewOnlyPDF(ctx context.Context, fileID string, outputPath string) error {
 	binPath, has := launcher.LookPath()
 	if !has {
@@ -36,16 +39,28 @@ func DownloadViewOnlyPDF(ctx context.Context, fileID string, outputPath string) 
 
 	log.Printf("[gscraper] Memulai headless Chromium (%s) untuk Google Drive file ID: %s", binPath, fileID)
 
-	// Konfigurasi launcher dengan opsi aman untuk environment server (Debian/Linux VPS)
+	tempUserDir, err := os.MkdirTemp("", "cr-rod-user-*")
+	if err == nil {
+		defer os.RemoveAll(tempUserDir)
+	}
+
+	// Konfigurasi launcher dengan opsi aman untuk environment server (Debian/Linux VPS & Windows)
 	l := launcher.New().
 		Bin(binPath).
 		Headless(true).
 		NoSandbox(true).
+		Leakless(false).
 		Set("disable-dev-shm-usage").
 		Set("disable-gpu").
 		Set("disable-setuid-sandbox").
 		Set("no-first-run").
-		Set("no-default-browser-check")
+		Set("no-default-browser-check").
+		Set("window-size", "1920,1080").
+		Set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	if tempUserDir != "" {
+		l = l.UserDataDir(tempUserDir)
+	}
 
 	controlURL, err := l.Launch()
 	if err != nil {
@@ -77,169 +92,144 @@ func DownloadViewOnlyPDF(ctx context.Context, fileID string, outputPath string) 
 		return fmt.Errorf("gagal memuat halaman preview: %w", err)
 	}
 
-	// Beri jeda 2 detik agar runtime scripts Google Drive siap
-	time.Sleep(2 * time.Second)
+	// Beri jeda agar runtime scripts Google Drive siap
+	time.Sleep(3 * time.Second)
 
-	// Injeksi skrip ekstraksi PDF ke dalam headless page
+	// Injeksi skrip ekstraksi PDF ke dalam headless page tanpa library eksternal (CSP-safe)
 	extractorJS := `
 	async () => {
-		// 1. Muat jsPDF
-		async function loadJsPDF() {
-			if (window.jspdf && window.jspdf.jsPDF) return window.jspdf.jsPDF;
-			const cdnUrl = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-			let trustedURL = cdnUrl;
-			if (window.trustedTypes && trustedTypes.createPolicy) {
-				try {
-					const policy = trustedTypes.createPolicy('crScraperPolicy', { createScriptURL: (i) => i });
-					trustedURL = policy.createScriptURL(cdnUrl);
-				} catch(e) {}
-			}
-			await new Promise((resolve, reject) => {
-				const s = document.createElement("script");
-				s.src = trustedURL;
-				s.onload = resolve;
-				s.onerror = reject;
-				document.head.appendChild(s);
-			});
-			return window.jspdf.jsPDF;
-		}
+		// 1. Temukan scroll container Google Drive Viewer
+		const scroller = document.querySelector('.ndfHFb-c4YZDc-s2gQvd') ||
+			Array.from(document.querySelectorAll('*')).find(el => {
+				const s = window.getComputedStyle(el);
+				return (s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
+			}) || document.scrollingElement || document.documentElement;
 
-		const jsPDF = await loadJsPDF();
-
-		// 2. Temukan scroll container
-		const candidates = [
-			document.querySelector('.drive-viewer-paginated-scrollable'),
-			document.querySelector('.ndfHFb-c4YZDc-Wrql6b'),
-			document.querySelector('[role="document"]')?.parentElement,
-			document.documentElement,
-			document.body
-		];
-		let scroller = document.scrollingElement || document.documentElement;
-		for (const el of candidates) {
-			if (el && (el.scrollHeight > el.clientHeight || el === document.body)) {
-				scroller = el;
-				break;
-			}
-		}
-
-		// 3. Auto-scroll dan tangkap halaman
 		const capturedPages = new Map();
-		const scrollStep = Math.max(300, Math.floor(scroller.clientHeight * 0.8));
-		let currentScroll = 0;
-		const maxScroll = scroller.scrollHeight;
+		let pageHeight = 1147;
+		let foundAny = false;
 
-		function getPageNumberFromElement(img) {
-			let curr = img;
-			while (curr && curr !== document.body) {
-				for (const attr of ["data-page-number", "data-page-index", "aria-label"]) {
-					const val = curr.getAttribute(attr);
-					if (val) {
-						const match = val.match(/\b(\d+)\b/);
-						if (match) return parseInt(match[1], 10);
-					}
-				}
-				curr = curr.parentElement;
-			}
-			return null;
-		}
-
-		async function captureVisible() {
-			const imgs = Array.from(document.querySelectorAll("img")).filter(img => {
-				return /^blob:/.test(img.src) || (img.src && img.src.includes("googleusercontent.com"));
+		function captureVisible() {
+			const imgs = Array.from(document.querySelectorAll("img")).filter(i => {
+				return i.src && (i.src.includes("drive-viewer") || i.src.includes("googleusercontent.com") || i.src.startsWith("blob:"));
 			});
-			imgs.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
 
 			for (const img of imgs) {
-				if (!img.complete || img.naturalWidth === 0) {
-					await new Promise(r => {
-						img.addEventListener("load", r, { once: true });
-						setTimeout(r, 1200);
-					});
-				}
 				const w = img.naturalWidth || img.width;
 				const h = img.naturalHeight || img.height;
-				if (w < 100 || h < 100) continue;
+				if (w < 150 || h < 150) continue;
 
-				let pageNum = getPageNumberFromElement(img);
-				if (!pageNum) pageNum = capturedPages.size + 1;
+				if (!foundAny && h > 400) {
+					pageHeight = h + 16;
+					foundAny = true;
+				}
 
-				const existing = capturedPages.get(pageNum);
-				if (!existing || (w * h > existing.width * existing.height)) {
+				const rect = img.getBoundingClientRect();
+				const absoluteTop = scroller.scrollTop + rect.top;
+				const pageNum = Math.max(1, Math.round(absoluteTop / pageHeight) + 1);
+
+				if (!capturedPages.has(pageNum)) {
 					try {
 						const canvas = document.createElement("canvas");
 						canvas.width = w;
 						canvas.height = h;
 						const ctx = canvas.getContext("2d");
 						ctx.drawImage(img, 0, 0, w, h);
-						capturedPages.set(pageNum, {
-							dataUrl: canvas.toDataURL("image/jpeg", 0.94),
-							width: w,
-							height: h
-						});
+						const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
+						capturedPages.set(pageNum, dataUrl);
 					} catch(e) {}
 				}
 			}
 		}
 
+		// Initial capture
+		captureVisible();
+
+		// Auto-scroll loop
+		const scrollStep = Math.max(1500, Math.floor(scroller.clientHeight * 1.5));
+		let currentScroll = 0;
+		const maxScroll = scroller.scrollHeight;
+		let lastCount = 0;
+		let stallCount = 0;
+
 		while (currentScroll <= maxScroll + scrollStep) {
 			scroller.scrollTop = currentScroll;
-			window.scrollTo(0, currentScroll);
-			await captureVisible();
-			await new Promise(r => setTimeout(r, 500));
+			await new Promise(r => setTimeout(r, 250));
+			captureVisible();
+
+			if (capturedPages.size === lastCount) {
+				stallCount++;
+			} else {
+				stallCount = 0;
+				lastCount = capturedPages.size;
+			}
+
 			currentScroll += scrollStep;
-			if (currentScroll > scroller.scrollHeight) break;
+			if (currentScroll > scroller.scrollHeight) {
+				if (stallCount >= 3) break;
+			}
 		}
+
+		// Pastikan posisi paling bawah tertangkap
+		scroller.scrollTop = scroller.scrollHeight;
+		await new Promise(r => setTimeout(r, 400));
+		captureVisible();
 
 		if (capturedPages.size === 0) {
 			throw new Error("Tidak ada gambar halaman yang terdeteksi di dokumen Google Drive ini");
 		}
 
-		// 4. Rekonstruksi PDF
+		// Kembalikan daftar halaman terurut
 		const sortedKeys = Array.from(capturedPages.keys()).sort((a, b) => a - b);
-		let pdf = null;
-		for (const pNum of sortedKeys) {
-			const page = capturedPages.get(pNum);
-			const w = page.width;
-			const h = page.height;
-			const orientation = w >= h ? "landscape" : "portrait";
-			if (!pdf) {
-				pdf = new jsPDF({ orientation, unit: "pt", format: [w, h], compress: true });
-			} else {
-				pdf.addPage([w, h], orientation);
-			}
-			pdf.addImage(page.dataUrl, "JPEG", 0, 0, w, h);
+		const pages = [];
+		for (const k of sortedKeys) {
+			pages.push({
+				pageNum: k,
+				dataUrl: capturedPages.get(k)
+			});
 		}
 
-		// Kembalikan base64
-		const rawBase64 = pdf.output("datauristring").split(",")[1];
 		return {
-			pageCount: sortedKeys.length,
-			base64: rawBase64
+			count: pages.length,
+			pages: pages
 		};
 	}
 	`
 
-	log.Printf("[gscraper] Mengeksekusi auto-scroll dan ekstraksi halaman di headless page...")
+	log.Printf("[gscraper] Mengeksekusi auto-scroll dan ekstraksi canvas halaman...")
 	evalRes, err := pageWithCtx.Eval(extractorJS)
 	if err != nil {
 		return fmt.Errorf("ekstraksi headless gagal: %w", err)
 	}
 
-	base64Data := evalRes.Value.Get("base64").String()
-	pageCount := evalRes.Value.Get("pageCount").Int()
-	if base64Data == "" {
-		return errors.New("tidak ada data PDF yang dihasilkan dari headless scraper")
+	pagesVal := evalRes.Value.Get("pages")
+	pageCount := evalRes.Value.Get("count").Int()
+	if pageCount == 0 {
+		return errors.New("tidak ada halaman komik yang dihasilkan dari headless scraper")
 	}
 
-	log.Printf("[gscraper] Berhasil mengekstrak %d halaman, mendecode base64 PDF...", pageCount)
-	pdfBytes, err := base64.StdEncoding.DecodeString(base64Data)
+	log.Printf("[gscraper] Berhasil mengumpulkan %d halaman, mendekode JPEG...", pageCount)
+	var jpegs [][]byte
+	for i := 0; i < pageCount; i++ {
+		p := pagesVal.Get(fmt.Sprintf("%d", i))
+		dataUrl := p.Get("dataUrl").String()
+		parts := strings.Split(dataUrl, ",")
+		if len(parts) == 2 {
+			raw, decodeErr := base64.StdEncoding.DecodeString(parts[1])
+			if decodeErr == nil && len(raw) > 0 {
+				jpegs = append(jpegs, raw)
+			}
+		}
+	}
+
+	if len(jpegs) == 0 {
+		return errors.New("gagal mendekode data gambar JPEG dari headless scraper")
+	}
+
+	log.Printf("[gscraper] Menyusun dokumen PDF dari %d halaman JPEG...", len(jpegs))
+	pdfBytes, err := BuildPDFFromJPEGs(jpegs)
 	if err != nil {
-		return fmt.Errorf("gagal mendecode data base64 PDF: %w", err)
-	}
-
-	// Validasi magic PDF
-	if len(pdfBytes) < 4 || string(pdfBytes[:4]) != "%PDF" {
-		return errors.New("data hasil headless scraper bukan dokumen PDF valid")
+		return fmt.Errorf("gagal menyusun PDF dari JPEG: %w", err)
 	}
 
 	// Simpan ke file tujuan
@@ -253,6 +243,86 @@ func DownloadViewOnlyPDF(ctx context.Context, fileID string, outputPath string) 
 		return fmt.Errorf("gagal rename file PDF: %w", err)
 	}
 
-	log.Printf("[gscraper] PDF berhasil disimpan ke: %s (%d bytes)", outputPath, len(pdfBytes))
+	log.Printf("[gscraper] PDF berhasil disimpan ke: %s (%d bytes, %d halaman)", outputPath, len(pdfBytes), len(jpegs))
 	return nil
+}
+
+// BuildPDFFromJPEGs membuat dokumen PDF standar dari kumpulan byte gambar JPEG
+func BuildPDFFromJPEGs(jpegs [][]byte) ([]byte, error) {
+	if len(jpegs) == 0 {
+		return nil, fmt.Errorf("tidak ada gambar JPEG untuk dibuatkan PDF")
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+
+	type objOffset struct {
+		id     int
+		offset int
+	}
+	var offsets []objOffset
+
+	numPages := len(jpegs)
+
+	writeObj := func(id int, data string) {
+		offsets = append(offsets, objOffset{id: id, offset: buf.Len()})
+		buf.WriteString(fmt.Sprintf("%d 0 obj\n%s\nendobj\n", id, data))
+	}
+
+	// 1: Catalog
+	writeObj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+
+	// Kids list for Pages
+	var kids []string
+	for i := 1; i <= numPages; i++ {
+		pageObjID := 3 * i
+		kids = append(kids, fmt.Sprintf("%d 0 R", pageObjID))
+	}
+	writeObj(2, fmt.Sprintf("<< /Type /Pages /Kids [ %s ] /Count %d >>", strings.Join(kids, " "), numPages))
+
+	for i, imgData := range jpegs {
+		pageIdx := i + 1
+		pageObjID := 3 * pageIdx
+		imgObjID := 3*pageIdx + 1
+		contentObjID := 3*pageIdx + 2
+
+		cfg, err := jpeg.DecodeConfig(bytes.NewReader(imgData))
+		w, h := 800, 1131
+		if err == nil && cfg.Width > 0 && cfg.Height > 0 {
+			w, h = cfg.Width, cfg.Height
+		}
+
+		// Page object
+		writeObj(pageObjID, fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [ 0 0 %d %d ] /Resources << /XObject << /Im1 %d 0 R >> >> /Contents %d 0 R >>", w, h, imgObjID, contentObjID))
+
+		// Image XObject
+		imgHeader := fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n", w, h, len(imgData))
+		offsets = append(offsets, objOffset{id: imgObjID, offset: buf.Len()})
+		buf.WriteString(fmt.Sprintf("%d 0 obj\n%s", imgObjID, imgHeader))
+		buf.Write(imgData)
+		buf.WriteString("\nendstream\nendobj\n")
+
+		// Content stream
+		content := fmt.Sprintf("q %d 0 0 %d 0 0 cm /Im1 Do Q", w, h)
+		writeObj(contentObjID, fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content))
+	}
+
+	// XRef table
+	startXref := buf.Len()
+	maxObjID := 3*numPages + 2
+	buf.WriteString(fmt.Sprintf("xref\n0 %d\n0000000000 65535 f \n", maxObjID+1))
+
+	offsetMap := make(map[int]int)
+	for _, o := range offsets {
+		offsetMap[o.id] = o.offset
+	}
+
+	for id := 1; id <= maxObjID; id++ {
+		off := offsetMap[id]
+		buf.WriteString(fmt.Sprintf("%010d 00000 n \n", off))
+	}
+
+	buf.WriteString(fmt.Sprintf("trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", maxObjID+1, startXref))
+
+	return buf.Bytes(), nil
 }

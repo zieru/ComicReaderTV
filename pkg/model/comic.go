@@ -11,6 +11,8 @@ type Comic struct {
 	SourceType  string    `json:"source_type"` // "gdrive_pdf", "direct_pdf"
 	SourceURL   string    `json:"source_url"`  // URL Google Drive embed/preview atau direct link
 	TotalPages  int       `json:"total_pages"`
+	Status      string    `json:"status,omitempty"`    // "ready", "processing", "error"
+	ErrorMsg    string    `json:"error_msg,omitempty"` // pesan error saat status == "error"
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
