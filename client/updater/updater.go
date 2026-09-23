@@ -75,26 +75,80 @@ func (u *Updater) CheckUpdate() (*GitHubRelease, bool, error) {
 func isNewer(latest, current string) bool {
 	l := strings.TrimPrefix(latest, "v")
 	c := strings.TrimPrefix(current, "v")
-	return l != "" && l != c
+	if l == "" || l == c {
+		return false
+	}
+
+	var lMaj, lMin, lPatch int
+	var cMaj, cMin, cPatch int
+	_, _ = fmt.Sscanf(l, "%d.%d.%d", &lMaj, &lMin, &lPatch)
+	_, _ = fmt.Sscanf(c, "%d.%d.%d", &cMaj, &cMin, &cPatch)
+
+	if lMaj != cMaj {
+		return lMaj > cMaj
+	}
+	if lMin != cMin {
+		return lMin > cMin
+	}
+	return lPatch > cPatch
+}
+
+// FindAPKAsset mencari file .apk di daftar assets release
+func (rel *GitHubRelease) FindAPKAsset() *Asset {
+	for i := range rel.Assets {
+		if strings.HasSuffix(strings.ToLower(rel.Assets[i].Name), ".apk") {
+			return &rel.Assets[i]
+		}
+	}
+	return nil
+}
+
+// GetWritableUpdateDir mencari folder lokal yang bisa ditulis untuk menyimpan file update
+func GetWritableUpdateDir() string {
+	candidates := []string{
+		"/sdcard/Download",
+		"/storage/emulated/0/Download",
+		filepath.Join(os.TempDir(), "updates"),
+		"/data/data/com.comicreader.tv/cache",
+	}
+	for _, dir := range candidates {
+		if err := os.MkdirAll(dir, 0755); err == nil {
+			testFile := filepath.Join(dir, ".test_write")
+			if f, err := os.Create(testFile); err == nil {
+				_ = f.Close()
+				_ = os.Remove(testFile)
+				return dir
+			}
+		}
+	}
+	return os.TempDir()
 }
 
 // DownloadAndInstallAPK mengunduh APK baru dan memanggil installer Android TV
-func (u *Updater) DownloadAndInstallAPK(downloadURL, destDir string, onProgress func(percent float32)) error {
+func (u *Updater) DownloadAndInstallAPK(downloadURL, destDir string, onProgress func(percent float32)) (string, error) {
 	req, err := http.NewRequest(http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	resp, err := u.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("gagal mengunduh APK: %w", err)
+		return "", fmt.Errorf("gagal mengunduh APK: %w", err)
 	}
 	defer resp.Body.Close()
 
-	apkPath := filepath.Join(destDir, "update.apk")
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("gagal mengunduh APK, HTTP %s", resp.Status)
+	}
+
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		destDir = os.TempDir()
+	}
+
+	apkPath := filepath.Join(destDir, "ComicReaderTV.apk")
 	outFile, err := os.Create(apkPath)
 	if err != nil {
-		return fmt.Errorf("gagal membuat file update apk: %w", err)
+		return "", fmt.Errorf("gagal membuat file update apk: %w", err)
 	}
 	defer outFile.Close()
 
@@ -106,7 +160,7 @@ func (u *Updater) DownloadAndInstallAPK(downloadURL, destDir string, onProgress 
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			if _, wErr := outFile.Write(buf[:n]); wErr != nil {
-				return wErr
+				return "", wErr
 			}
 			downloadedBytes += int64(n)
 			if totalBytes > 0 && onProgress != nil {
@@ -117,15 +171,24 @@ func (u *Updater) DownloadAndInstallAPK(downloadURL, destDir string, onProgress 
 			break
 		}
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 
 	if runtime.GOOS == "android" {
-		// Memicu intent instalasi di Android TV via am start
-		cmd := exec.Command("am", "start", "-a", "android.intent.action.VIEW", "-d", "file://"+apkPath, "-t", "application/vnd.android.package-archive")
-		return cmd.Start()
+		// Memicu intent instalasi di Android TV via am start (Multiple standard actions)
+		_ = exec.Command("am", "start", "-a", "android.intent.action.VIEW",
+			"-d", "file://"+apkPath,
+			"-t", "application/vnd.android.package-archive",
+			"-f", "0x10000001",
+		).Start()
+
+		_ = exec.Command("am", "start", "-a", "android.intent.action.INSTALL_PACKAGE",
+			"-d", "file://"+apkPath,
+			"-t", "application/vnd.android.package-archive",
+			"-f", "0x10000001",
+		).Start()
 	}
 
-	return nil
+	return apkPath, nil
 }

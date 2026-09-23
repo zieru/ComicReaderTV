@@ -17,7 +17,22 @@ def patch_manifest(manifest_path):
     root = tree.getroot()
     android_ns = '{http://schemas.android.com/apk/res/android}'
 
-    # Cek apakah leanback feature sudah ada
+    # 1. Pastikan permissions penting ada (Internet, Network State, dan Install Packages)
+    required_permissions = [
+        'android.permission.INTERNET',
+        'android.permission.ACCESS_NETWORK_STATE',
+        'android.permission.REQUEST_INSTALL_PACKAGES',
+        'android.permission.READ_EXTERNAL_STORAGE',
+        'android.permission.WRITE_EXTERNAL_STORAGE',
+    ]
+    for perm in required_permissions:
+        has_perm = any(elem.attrib.get(f'{android_ns}name') == perm for elem in root.findall('uses-permission'))
+        if not has_perm:
+            p = ET.Element('uses-permission')
+            p.set(f'{android_ns}name', perm)
+            root.insert(0, p)
+
+    # 2. Cek apakah leanback feature sudah ada
     has_leanback = any(elem.attrib.get(f'{android_ns}name') == 'android.software.leanback' for elem in root.findall('uses-feature'))
     if not has_leanback:
         f = ET.Element('uses-feature')
@@ -25,7 +40,7 @@ def patch_manifest(manifest_path):
         f.set(f'{android_ns}required', 'false')
         root.insert(0, f)
 
-    # Cek apakah touchscreen feature sudah ada
+    # 3. Cek apakah touchscreen feature sudah ada
     has_touch = any(elem.attrib.get(f'{android_ns}name') == 'android.hardware.touchscreen' for elem in root.findall('uses-feature'))
     if not has_touch:
         f = ET.Element('uses-feature')
@@ -33,8 +48,12 @@ def patch_manifest(manifest_path):
         f.set(f'{android_ns}required', 'false')
         root.insert(0, f)
 
+    # 4. Modifikasi konfigurasi <application>
     app = root.find('application')
     if app is not None:
+        # PENTING: Izinkan cleartext HTTP (http://) di Android 9+ agar bisa mengakses server katalog
+        app.set(f'{android_ns}usesCleartextTraffic', 'true')
+
         if f'{android_ns}banner' not in app.attrib and f'{android_ns}icon' in app.attrib:
             app.set(f'{android_ns}banner', app.attrib[f'{android_ns}icon'])
         
@@ -50,7 +69,7 @@ def patch_manifest(manifest_path):
                     ifilter.append(c)
 
     tree.write(manifest_path, encoding='utf-8', xml_declaration=True)
-    print(f"Successfully patched {manifest_path} for Android TV compatibility.")
+    print(f"Successfully patched {manifest_path} for Android TV compatibility (usesCleartextTraffic=true, permissions, leanback).")
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:

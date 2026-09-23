@@ -28,6 +28,7 @@ type ReaderView struct {
 	ShowHUD     bool
 	Loupe       *FloatingLoupe
 	OnBack      func()
+	Invalidate  func()
 
 	imageMu     sync.RWMutex
 	currentPage paint.ImageOp
@@ -38,7 +39,7 @@ type ReaderView struct {
 	hudTimer    *time.Timer
 }
 
-func NewReaderView(serverURL string, comic model.Comic, onBack func()) *ReaderView {
+func NewReaderView(serverURL string, comic model.Comic, onBack func(), invalidate func()) *ReaderView {
 	tot := comic.TotalPages
 	if tot == 0 {
 		tot = 1
@@ -50,16 +51,28 @@ func NewReaderView(serverURL string, comic model.Comic, onBack func()) *ReaderVi
 		TotalPages:  tot,
 		Loupe:       NewFloatingLoupe(),
 		OnBack:      onBack,
+		Invalidate:  invalidate,
 	}
 	rv.loadPage(1)
 	return rv
 }
 
+func (rv *ReaderView) triggerInvalidate() {
+	if rv.Invalidate != nil {
+		rv.Invalidate()
+	}
+}
+
 func (rv *ReaderView) loadPage(num int) {
 	rv.isLoading = true
 	rv.lastError = ""
+	rv.triggerInvalidate()
 
 	go func() {
+		defer func() {
+			rv.triggerInvalidate()
+		}()
+
 		url := fmt.Sprintf("%s/api/comics/%s/page/%d", rv.ServerURL, rv.Comic.ID, num)
 		client := &http.Client{Timeout: 15 * time.Second}
 		resp, err := client.Get(url)

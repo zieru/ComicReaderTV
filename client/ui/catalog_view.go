@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -27,49 +31,112 @@ type CatalogView struct {
 	Loading      bool
 	ErrorMessage string
 	OnSelect     func(comic model.Comic)
+	Invalidate   func()
 
 	coversMu sync.RWMutex
 	covers   map[string]paint.ImageOp
 }
 
-func NewCatalogView(serverURL string, onSelect func(c model.Comic)) *CatalogView {
+func NewCatalogView(serverURL string, onSelect func(c model.Comic), invalidate func()) *CatalogView {
 	cv := &CatalogView{
-		ServerURL:    serverURL,
-		Columns:      4, // 4 kolom di layar landscape Android TV
-		OnSelect:     onSelect,
-		covers:       make(map[string]paint.ImageOp),
+		ServerURL:  serverURL,
+		Columns:    4, // 4 kolom di layar landscape Android TV
+		OnSelect:   onSelect,
+		Invalidate: invalidate,
+		covers:     make(map[string]paint.ImageOp),
 	}
 	cv.FetchCatalog()
 	return cv
 }
 
+func (cv *CatalogView) triggerInvalidate() {
+	if cv.Invalidate != nil {
+		cv.Invalidate()
+	}
+}
+
 func (cv *CatalogView) FetchCatalog() {
 	cv.Loading = true
+	cv.ErrorMessage = ""
+	cv.triggerInvalidate()
+
 	go func() {
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Get(cv.ServerURL + "/api/comics")
-		if err != nil {
-			cv.ErrorMessage = fmt.Sprintf("Gagal koneksi ke server: %v", err)
+		defer func() {
 			cv.Loading = false
+			cv.triggerInvalidate()
+		}()
+
+		client := &http.Client{Timeout: 12 * time.Second}
+		endpoint := strings.TrimRight(cv.ServerURL, "/") + "/api/comics"
+		resp, err := client.Get(endpoint)
+		if err != nil {
+			cv.ErrorMessage = fmt.Sprintf("Gagal koneksi ke %s\nError: %v", endpoint, err)
 			return
 		}
 		defer resp.Body.Close()
 
+		if resp.StatusCode != http.StatusOK {
+			cv.ErrorMessage = fmt.Sprintf("Server mengembalikan status: %s", resp.Status)
+			return
+		}
+
 		var list []model.Comic
 		if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
-			cv.ErrorMessage = "Gagal parsing respon server"
-			cv.Loading = false
+			cv.ErrorMessage = fmt.Sprintf("Gagal parsing data komik: %v", err)
 			return
 		}
 
 		cv.Comics = list
-		cv.Loading = false
+		cv.FocusedIndex = 0
+
+		// Unduh cover tiap komik di latar belakang
+		for _, c := range list {
+			if c.CoverURL != "" {
+				go cv.fetchCover(c.ID, c.CoverURL)
+			}
+		}
 	}()
+}
+
+func (cv *CatalogView) fetchCover(id, coverURL string) {
+	cv.coversMu.RLock()
+	_, exists := cv.covers[id]
+	cv.coversMu.RUnlock()
+	if exists {
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(coverURL)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+
+	img, _, err := image.Decode(resp.Body)
+	if err != nil {
+		return
+	}
+
+	imgOp := paint.NewImageOp(img)
+	cv.coversMu.Lock()
+	cv.covers[id] = imgOp
+	cv.coversMu.Unlock()
+
+	cv.triggerInvalidate()
 }
 
 // HandleKey menangani navigasi D-pad TV di katalog
 func (cv *CatalogView) HandleKey(k RemoteKey) {
-	if len(cv.Comics) == 0 {
+	// Jika sedang error atau data kosong, tombol OK/Select memicu reload
+	if cv.ErrorMessage != "" || len(cv.Comics) == 0 {
+		if k == KeySelect {
+			cv.FetchCatalog()
+		}
 		return
 	}
 
@@ -106,19 +173,67 @@ func (cv *CatalogView) Layout(gtx layout.Context, th *material.Theme) layout.Dim
 
 	if cv.Loading {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return material.H6(th, "Memuat Katalog Komik...").Layout(gtx)
+			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					title := material.H5(th, "📺 Comic Reader TV")
+					title.Color = color.NRGBA{R: 76, G: 175, B: 80, A: 255}
+					return title.Layout(gtx)
+				}),
+				layout.Rigid(layout.Spacer{Height: unit.Dp(20)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					lbl := material.H6(th, "Memuat Katalog Komik...")
+					lbl.Color = color.NRGBA{R: 0, G: 220, B: 255, A: 255}
+					return lbl.Layout(gtx)
+				}),
+				layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					sub := material.Body2(th, fmt.Sprintf("Menghubungkan ke %s", cv.ServerURL))
+					sub.Color = color.NRGBA{R: 160, G: 160, B: 160, A: 255}
+					return sub.Layout(gtx)
+				}),
+			)
 		})
 	}
 
 	if cv.ErrorMessage != "" {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return material.Body1(th, cv.ErrorMessage).Layout(gtx)
+			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					errTitle := material.H5(th, "⚠️ Gagal Memuat Katalog")
+					errTitle.Color = color.NRGBA{R: 255, G: 82, B: 82, A: 255}
+					return errTitle.Layout(gtx)
+				}),
+				layout.Rigid(layout.Spacer{Height: unit.Dp(14)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					errMsg := material.Body1(th, cv.ErrorMessage)
+					errMsg.Color = color.NRGBA{R: 220, G: 220, B: 220, A: 255}
+					return errMsg.Layout(gtx)
+				}),
+				layout.Rigid(layout.Spacer{Height: unit.Dp(24)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					hint := material.Body2(th, "Tekan tombol [OK / Enter] pada remote TV untuk mencoba lagi")
+					hint.Color = color.NRGBA{R: 76, G: 175, B: 80, A: 255}
+					return hint.Layout(gtx)
+				}),
+			)
 		})
 	}
 
 	if len(cv.Comics) == 0 {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return material.Body1(th, "Belum ada komik di katalog. Masukkan komik melalui admin web server.").Layout(gtx)
+			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					lbl := material.Body1(th, "Belum ada komik di katalog. Masukkan komik melalui web admin server.")
+					lbl.Color = color.NRGBA{R: 200, G: 200, B: 200, A: 255}
+					return lbl.Layout(gtx)
+				}),
+				layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					hint := material.Body2(th, "Tekan tombol [OK / Enter] untuk memuat ulang")
+					hint.Color = color.NRGBA{R: 76, G: 175, B: 80, A: 255}
+					return hint.Layout(gtx)
+				}),
+			)
 		})
 	}
 
@@ -175,10 +290,43 @@ func (cv *CatalogView) renderComicCard(gtx layout.Context, th *material.Theme, c
 		clipArea.Pop()
 	}
 
-	// Body Kartu Komik
+	// Body Kartu Komik (Background)
 	clipCard := clip.RRect{Rect: cardRect, SE: 8, SW: 8, NW: 8, NE: 8}.Push(gtx.Ops)
 	paint.ColorOp{Color: color.NRGBA{R: 35, G: 35, B: 35, A: 255}}.Add(gtx.Ops)
 	paint.PaintOp{}.Add(gtx.Ops)
+
+	// Gambar Cover jika sudah selesai diunduh
+	cv.coversMu.RLock()
+	imgOp, hasCover := cv.covers[c.ID]
+	cv.coversMu.RUnlock()
+
+	if hasCover {
+		imgSize := imgOp.Size()
+		if imgSize.X > 0 && imgSize.Y > 0 {
+			scaleX := float32(wScaled) / float32(imgSize.X)
+			scaleY := float32(hScaled) / float32(imgSize.Y)
+
+			macro := op.Record(gtx.Ops)
+			trans := f32.Affine2D{}.
+				Offset(f32.Pt(float32(xScaled), float32(yScaled))).
+				Scale(f32.Pt(0, 0), f32.Pt(scaleX, scaleY))
+			op.Affine(trans).Add(gtx.Ops)
+			imgOp.Add(gtx.Ops)
+			paint.PaintOp{}.Add(gtx.Ops)
+			macro.Stop().Add(gtx.Ops)
+		}
+	} else {
+		// Placeholder saat cover sedang diunduh
+		subText := material.Caption(th, "📖 Memuat...")
+		subText.Color = color.NRGBA{R: 120, G: 120, B: 120, A: 255}
+		titleMacro := op.Record(gtx.Ops)
+		op.Offset(image.Pt(xScaled+12, yScaled+hScaled/2-10)).Add(gtx.Ops)
+		gtxSub := gtx
+		gtxSub.Constraints.Max.X = wScaled - 24
+		subText.Layout(gtxSub)
+		titleMacro.Stop().Add(gtx.Ops)
+	}
+
 	clipCard.Pop()
 
 	// Label Judul di bawah kartu
