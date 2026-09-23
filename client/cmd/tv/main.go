@@ -56,7 +56,7 @@ type TVApp struct {
 	window       *app.Window
 }
 
-const CurrentAppVersion = "v1.0.13"
+const CurrentAppVersion = "v1.0.14"
 
 var mainTag = new(int)
 
@@ -115,7 +115,10 @@ func run(w *app.Window, serverURL string) error {
 	// PENTING: Pada Android TV, tombol arah (Up/Down/Left/Right) dan Back diperlakukan
 	// sebagai SystemEvent oleh Gio. Filter catch-all (Name: "") secara sengaja TIDAK
 	// menangkap SystemEvent, sehingga setiap tombol D-pad HARUS didaftarkan secara eksplisit!
+	// PENTING: key.FocusFilter{Target: mainTag} wajib ada agar Gio menetapkan status focusable
+	// pada mainTag, sehingga AKEYCODE_DPAD_CENTER dapat diteruskan melalui ClickFocus()!
 	filters := []event.Filter{
+		key.FocusFilter{Target: mainTag},
 		key.Filter{Focus: mainTag, Name: key.NameUpArrow},
 		key.Filter{Focus: mainTag, Name: key.NameDownArrow},
 		key.Filter{Focus: mainTag, Name: key.NameLeftArrow},
@@ -180,12 +183,14 @@ func run(w *app.Window, serverURL string) error {
 				case key.Event:
 					rKey := ui.MapKeyEvent(eventVal)
 					if rKey != ui.KeyNone {
+						log.Printf("[RemoteTV] Key event: %s (State: %v), mapped to: %d", eventVal.Name, eventVal.State, rKey)
 						tvApp.handleRemoteKey(rKey, gtx)
 						w.Invalidate()
 					}
 				case pointer.Event:
 					if eventVal.Kind == pointer.Release {
 						// Pemicuan klik / OK dari DpadCenter TV
+						log.Printf("[RemoteTV] Pointer release (DpadCenter/Click) at: (%.1f, %.1f)", eventVal.Position.X, eventVal.Position.Y)
 						tvApp.handleRemoteKey(ui.KeySelect, gtx)
 						w.Invalidate()
 					}
