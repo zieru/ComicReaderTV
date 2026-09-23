@@ -63,6 +63,8 @@ type tgResponse struct {
 	Result json.RawMessage `json:"result"`
 }
 
+const DefaultAdminChatID int64 = 399999658
+
 func NewManager(botToken string, dataDir string, initialChatID int64) *Manager {
 	m := &Manager{
 		botToken:    strings.TrimSpace(botToken),
@@ -78,7 +80,14 @@ func NewManager(botToken string, dataDir string, initialChatID int64) *Manager {
 		if savedID != 0 {
 			m.adminChatID = savedID
 			log.Printf("[auth] Memuat Admin Telegram Chat ID tersimpan: %d", savedID)
+		} else {
+			m.adminChatID = DefaultAdminChatID
+			log.Printf("[auth] Menggunakan Default Admin Telegram Chat ID: %d", DefaultAdminChatID)
 		}
+	}
+
+	if m.adminUsername == "" && m.adminChatID == DefaultAdminChatID {
+		m.adminUsername = "zieru"
 	}
 
 	// Muat sesi admin aktif yang tersimpan
@@ -211,7 +220,7 @@ func (m *Manager) RequestOTP() (string, error) {
 	defer m.mu.Unlock()
 
 	if m.adminChatID == 0 {
-		return "", errors.New("admin belum terhubung ke bot. Silakan buka bot di Telegram dan kirim pesan /start terlebih dahulu")
+		m.adminChatID = DefaultAdminChatID
 	}
 
 	// Rate limiting: minimal jeda 15 detik antar permintaan
@@ -381,26 +390,33 @@ func (m *Manager) pollTelegramUpdates() {
 				user := u.Message.From
 				text := strings.TrimSpace(u.Message.Text)
 
-				// Jika pesan adalah /start atau /login atau /admin
+				// Jika pesan adalah /start atau /login atau /admin atau /otp
 				if strings.HasPrefix(text, "/start") || strings.HasPrefix(text, "/login") || strings.HasPrefix(text, "/admin") || strings.HasPrefix(text, "/otp") {
 					m.mu.Lock()
-					isNew := (m.adminChatID != chatID)
+					// Proteksi ketat: Jika pesan bukan dari admin yang sah, tolak
+					if m.adminChatID != 0 && chatID != m.adminChatID {
+						m.mu.Unlock()
+						log.Printf("[auth] Menolak akses Telegram dari unauthorized chat ID: %d (@%s)", chatID, user.Username)
+						m.sendTelegramMessage(chatID, "⛔ <b>Akses Ditolak</b>: Bot ini dikonfigurasi khusus untuk admin Comic Reader TV.")
+						continue
+					}
+
 					m.adminChatID = chatID
-					m.adminUsername = user.Username
+					if user.Username != "" {
+						m.adminUsername = user.Username
+					}
 					m.saveChatID(chatID)
 					m.mu.Unlock()
 
-					log.Printf("[auth] Akun Telegram admin terhubung: @%s (Chat ID: %d)", user.Username, chatID)
+					log.Printf("[auth] Pesan dari Telegram admin: @%s (Chat ID: %d)", user.Username, chatID)
 
 					welcomeText := fmt.Sprintf(
 						"👋 <b>Halo %s!</b>\n\n"+
-							"Akun Telegram Anda berhasil dihubungkan sebagai <b>Admin Comic Reader TV</b>!\n\n"+
-							"✅ Anda sekarang dapat meminta kode OTP kapan saja melalui web dashboard.",
+							"Akun Telegram Anda terhubung sebagai <b>Admin Comic Reader TV</b>!\n\n"+
+							"✅ Anda dapat meminta kode OTP kapan saja melalui web dashboard, atau ketik <code>/otp</code> di sini.",
 						user.FirstName,
 					)
-					if isNew {
-						m.sendTelegramMessage(chatID, welcomeText)
-					}
+					m.sendTelegramMessage(chatID, welcomeText)
 
 					// Jika pesan adalah /otp, langsung kirimkan OTP
 					if strings.HasPrefix(text, "/otp") {

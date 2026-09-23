@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"comic_reader/server/internal/api"
 	"comic_reader/server/internal/auth"
@@ -16,19 +17,25 @@ import (
 	"comic_reader/server/web"
 )
 
-var Version = "1.0.7"
+var Version = "1.0.8"
 
 func main() {
 	port := flag.Int("port", 8080, "Port untuk server katalog")
 	dataDir := flag.String("data", "./data", "Direktori penyimpanan data dan cache")
 	botToken := flag.String("bot-token", "8978586484:AAFfLbux2a-88MLJbplns9Kz4VDfJzdtgi0", "Telegram Bot Token untuk autentikasi OTP")
-	chatID := flag.Int64("chat-id", 0, "Telegram Chat ID Admin (opsional, dapat terdeteksi otomatis via /start)")
+	chatID := flag.Int64("chat-id", 399999658, "Telegram Chat ID Admin (default 399999658)")
 	showVersion := flag.Bool("v", false, "Tampilkan versi server")
 	doUpdate := flag.Bool("update", false, "Periksa dan pasang pembaruan terbaru dari GitHub")
 	flag.Parse()
 
 	if envToken := os.Getenv("TELEGRAM_BOT_TOKEN"); envToken != "" && *botToken == "8978586484:AAFfLbux2a-88MLJbplns9Kz4VDfJzdtgi0" {
 		*botToken = envToken
+	}
+
+	if envChat := os.Getenv("TELEGRAM_CHAT_ID"); envChat != "" {
+		if id, err := strconv.ParseInt(envChat, 10, 64); err == nil {
+			*chatID = id
+		}
 	}
 
 	if *showVersion {
